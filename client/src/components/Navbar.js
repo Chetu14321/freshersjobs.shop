@@ -23,7 +23,7 @@ export default function Navbar() {
           to="/"
           style={{ fontSize: "1.7rem" }}
         >
-          <span className="text-primary">Job</span>Board
+          <span className="text-primary">Freshers</span>Job
         </Link>
 
         {/* Mobile Toggle (Sidebar) */}
