@@ -5,6 +5,7 @@ import JobDetails from "./components/JobDetails";
 import Sidebar from "./components/Sidebar";
 import Footer from "./components/Footer";
 import Intership from "./components/internship";
+import AdBanner from "./components/Addbanner";
 
 function App() {
   return (
@@ -27,8 +28,10 @@ function App() {
           <div className="col-lg-4 d-none d-lg-block">
             <Sidebar />
           </div>
+
         </div>
       </div>
+      <AdBanner />
 
       <Footer />
     </Router>
