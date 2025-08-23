@@ -59,10 +59,14 @@ app.get("/api/jobs/:id", async (req, res) => {
   res.json(job);
 });
 
-// Fallback for React frontend routes
+app.use(express.static(path.join(__dirname, "client", "build")));
+
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "client", "build", "index.html"));
 });
+
+
+
 
 // Start server
 app.listen(5000, () =>
