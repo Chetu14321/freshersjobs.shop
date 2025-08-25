@@ -45,11 +45,7 @@ export default function Footer() {
                   Internships
                 </Link>
               </li>
-              <li className="mb-2">
-                <Link className="text-decoration-none text-light" to="/locations">
-                  Locations
-                </Link>
-              </li>
+             
               <li className="mb-2">
                 <Link className="text-decoration-none text-light" to="/contact">
                   Contact Us
@@ -67,11 +63,11 @@ export default function Footer() {
                 href="mailto:support@jobboard.com"
                 className="text-light text-decoration-none"
               >
-                support@jobboard.com
+                chetuchethan87@gmail.com
               </a>
             </p>
             <p className="small mb-2">📍 Bangalore, India</p>
-            <p className="small">📞 +91 98765 43210</p>
+            
           </div>
         </div>
       </div>

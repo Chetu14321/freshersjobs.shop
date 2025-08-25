@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-export default function AdSlot({ height = 60, width = 468 }) {
+export default function AdSlot({ height = 60, width = 300 }) {
   const adRef = useRef(null);
 
   useEffect(() => {
