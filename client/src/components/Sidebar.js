@@ -19,8 +19,7 @@ export default function Sidebar() {
       
       </div>
 
-      Promotions Ad
-     
+      
       
       <div className="p-3 bg-light rounded shadow-sm text-center">
         <h5 className="fw-bold mb-3">Promotions</h5>
