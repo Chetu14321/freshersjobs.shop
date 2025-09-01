@@ -7,6 +7,11 @@ import Footer from "./components/Footer";
 import Intership from "./components/internship";
 import AdBanner from "./components/Addbanner";
 
+import About from "./pages/About";
+import Contact from "./pages/contact";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/terms";
+
 function App() {
   return (
     <Router>
@@ -19,8 +24,14 @@ function App() {
             <Routes>
               <Route path="/" element={<JobList />} />
               <Route path="/job/:id" element={<JobDetails />} />
-              <Route path="/internships" element={<Intership/>} />
+              <Route path="/internships" element={<Intership />} />
               <Route path="/locations" element={<h2>Locations Coming Soon</h2>} />
+
+              {/* New Trust Pages */}
+              <Route path="/about" element={<About />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
             </Routes>
           </div>
 
@@ -28,11 +39,10 @@ function App() {
           <div className="col-lg-4 d-none d-lg-block">
             <Sidebar />
           </div>
-
         </div>
       </div>
-      <AdBanner />
 
+      <AdBanner />
       <Footer />
     </Router>
   );

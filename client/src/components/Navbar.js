@@ -1,5 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
-import { Briefcase, GraduationCap, X } from "lucide-react";
+import { Briefcase, GraduationCap, MapPin, Info, Mail, ShieldCheck, FileText, X } from "lucide-react";
 
 export default function Navbar() {
   // ✅ helper to close offcanvas manually
@@ -40,24 +40,22 @@ export default function Navbar() {
         {/* Desktop Nav Links */}
         <ul className="navbar-nav ms-auto d-none d-lg-flex flex-row gap-4">
           <li className="nav-item">
-            <NavLink
-              end
-              className="nav-link fw-semibold "
-              style={{ fontSize: "1.7rem" }}
-              to="/"
-            >
+            <NavLink end className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/">
               Jobs
             </NavLink>
           </li>
           <li className="nav-item">
-            <NavLink
-              className="nav-link fw-semibold "
-              style={{ fontSize: "1.7rem" }}
-              to="/internships"
-            >
+            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/internships">
               Internships
             </NavLink>
           </li>
+         
+          <li className="nav-item">
+            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/about">
+              About
+            </NavLink>
+          </li>
+        
         </ul>
       </div>
 
@@ -88,7 +86,7 @@ export default function Navbar() {
               <NavLink
                 end
                 to="/"
-                onClick={closeOffcanvas} // ✅ manually close
+                onClick={closeOffcanvas}
                 className="d-flex align-items-center gap-2 text-decoration-none text-dark"
               >
                 <Briefcase size={18} className="text-primary" />
@@ -98,11 +96,61 @@ export default function Navbar() {
             <li className="list-group-item">
               <NavLink
                 to="/internships"
-                onClick={closeOffcanvas} // ✅ manually close
+                onClick={closeOffcanvas}
                 className="d-flex align-items-center gap-2 text-decoration-none text-dark"
               >
                 <GraduationCap size={18} className="text-success" />
                 <span className="fw-semibold">Internships</span>
+              </NavLink>
+            </li>
+            <li className="list-group-item">
+              <NavLink
+                to="/locations"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <MapPin size={18} className="text-danger" />
+                <span className="fw-semibold">Locations</span>
+              </NavLink>
+            </li>
+            <li className="list-group-item">
+              <NavLink
+                to="/about"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <Info size={18} className="text-info" />
+                <span className="fw-semibold">About</span>
+              </NavLink>
+            </li>
+            <li className="list-group-item">
+              <NavLink
+                to="/contact"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <Mail size={18} className="text-warning" />
+                <span className="fw-semibold">Contact</span>
+              </NavLink>
+            </li>
+            <li className="list-group-item">
+              <NavLink
+                to="/privacy"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <ShieldCheck size={18} className="text-success" />
+                <span className="fw-semibold">Privacy</span>
+              </NavLink>
+            </li>
+            <li className="list-group-item">
+              <NavLink
+                to="/terms"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <FileText size={18} className="text-secondary" />
+                <span className="fw-semibold">Terms</span>
               </NavLink>
             </li>
           </ul>
