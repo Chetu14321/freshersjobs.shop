@@ -110,13 +110,15 @@ app.post("/api/resume-checker", (req, res) => {
     }
   });
 });
-// Fallback for React frontend routes
-app.get("/", (req, res) => {
+
+// ================== Serve React Frontend ==================
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, "client", "build")));
+
+// Fallback route for React (must come after API routes)
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "client", "build", "index.html"));
 });
-
-
-
 
 // ================== Start Server ==================
 const PORT = process.env.PORT || 5000;
