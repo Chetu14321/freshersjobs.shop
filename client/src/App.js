@@ -11,6 +11,7 @@ import About from "./pages/About";
 import Contact from "./pages/contact";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/terms";
+import ResumeChecker from "./components/resumeChecker"; // ✅ NEW IMPORT
 
 function App() {
   return (
@@ -32,6 +33,9 @@ function App() {
               <Route path="/contact" element={<Contact />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
+
+              {/* ✅ New ATS Resume Checker Page */}
+              <Route path="/resume-checker" element={<ResumeChecker />} />
             </Routes>
           </div>
 

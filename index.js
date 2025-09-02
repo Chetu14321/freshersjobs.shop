@@ -3,6 +3,12 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const path = require("path");
+const fs = require("fs");
+const pdfParse = require("pdf-parse");
+const { IncomingForm } = require("formidable"); // ✅ fixed import
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const PDFDocument = require("pdfkit");
+
 
 dotenv.config();
 const app = express();
@@ -10,10 +16,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve React build
-// app.use(express.static(path.join(__dirname, "client", "build")));
-
-// MongoDB connect
+// ================== MongoDB Connection ==================
 mongoose
   .connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
@@ -22,7 +25,7 @@ mongoose
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.log(err));
 
-// Job Schema
+// ================== Job Schema ==================
 const jobSchema = new mongoose.Schema({
   title: String,
   company: String,
@@ -33,16 +36,15 @@ const jobSchema = new mongoose.Schema({
   applyUrl: String,
   type: {
     type: String,
-    enum: ["job", "internship"], // ✅ Only allow Job or Internship
-    default: "job"
+    enum: ["job", "internship"],
+    default: "job",
   },
   postedAt: { type: Date, default: Date.now },
 });
 
 const Job = mongoose.model("Job", jobSchema);
 
-
-// Routes
+// ================== Job Routes ==================
 app.get("/api/jobs", async (req, res) => {
   const jobs = await Job.find().sort({ postedAt: -1 });
   res.json(jobs);
@@ -59,16 +61,81 @@ app.get("/api/jobs/:id", async (req, res) => {
   res.json(job);
 });
 
-app.use(express.static(path.join(__dirname, "client", "build")));
+// ================== Resume Checker Route ==================
+app.post("/api/resume-checker", (req, res) => {
+  const form = new IncomingForm({ multiples: false }); // ✅ fixed
 
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "client", "build", "index.html"));
+  form.parse(req, async (err, fields, files) => {
+    if (err) return res.status(500).json({ error: "File upload failed" });
+
+    const jobDesc = fields.jobDesc || "";
+    let resumeText = "";
+
+    try {
+      if (files.resume) {
+        // Handle both v1 and v2 file structure
+        const filePath = files.resume.filepath || files.resume[0]?.filepath;
+        if (!filePath) throw new Error("Resume file not found");
+
+        const buffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(buffer);
+        resumeText = pdfData.text;
+      }
+
+      // ================== Google Gemini AI ==================
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const prompt = `
+        You are an ATS (Applicant Tracking System) expert.
+        Analyze this resume for ATS-friendliness.
+
+        Resume: ${resumeText}
+        Job Description: ${jobDesc}
+
+        Respond with only valid JSON. Do not include explanations.
+        Example format:
+        {
+          "score": 85,
+          "issues": ["Resume missing keywords like React", "Formatting not ATS-friendly"],
+          "suggestions": ["Add React projects", "Use simpler formatting"]
+        }
+      `;
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+
+      // 🛠 Extract JSON safely
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      let feedback;
+
+      if (jsonMatch) {
+        feedback = JSON.parse(jsonMatch[0]);
+      } else {
+        feedback = {
+          score: 0,
+          issues: ["AI did not return JSON"],
+          suggestions: [],
+        };
+      }
+
+      res.json(feedback);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "AI request failed" });
+    }
+  });
 });
 
 
 
 
-// Start server
-app.listen(5000, () =>
-  console.log("🚀 Server is running on http://localhost:5000")
-);
+
+
+
+        
+
+     
+// ================== Start Server ==================
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

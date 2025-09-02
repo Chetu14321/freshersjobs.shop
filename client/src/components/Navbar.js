@@ -1,5 +1,15 @@
 import { Link, NavLink } from "react-router-dom";
-import { Briefcase, GraduationCap, MapPin, Info, Mail, ShieldCheck, FileText, X } from "lucide-react";
+import {
+  Briefcase,
+  GraduationCap,
+  MapPin,
+  Info,
+  Mail,
+  ShieldCheck,
+  FileText,
+  FileSearch,
+  X,
+} from "lucide-react";
 
 export default function Navbar() {
   // ✅ helper to close offcanvas manually
@@ -49,13 +59,16 @@ export default function Navbar() {
               Internships
             </NavLink>
           </li>
-         
+          <li className="nav-item">
+            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/resume-checker">
+              Resume ATS
+            </NavLink>
+          </li>
           <li className="nav-item">
             <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/about">
               About
             </NavLink>
           </li>
-        
         </ul>
       </div>
 
@@ -103,14 +116,15 @@ export default function Navbar() {
                 <span className="fw-semibold">Internships</span>
               </NavLink>
             </li>
+            
             <li className="list-group-item">
               <NavLink
-                to="/locations"
+                to="/resume-checker"
                 onClick={closeOffcanvas}
                 className="d-flex align-items-center gap-2 text-decoration-none text-dark"
               >
-                <MapPin size={18} className="text-danger" />
-                <span className="fw-semibold">Locations</span>
+                <FileSearch size={18} className="text-primary" />
+                <span className="fw-semibold">Resume ATS</span>
               </NavLink>
             </li>
             <li className="list-group-item">
