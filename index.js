@@ -5,10 +5,9 @@ const dotenv = require("dotenv");
 const path = require("path");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
-const { IncomingForm } = require("formidable"); // ✅ fixed import
+const { IncomingForm } = require("formidable");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const PDFDocument = require("pdfkit");
-
 
 dotenv.config();
 const app = express();
@@ -41,10 +40,9 @@ const jobSchema = new mongoose.Schema({
   },
   postedAt: { type: Date, default: Date.now },
 });
-
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== Job Routes ==================
+// ================== API Routes ==================
 app.get("/api/jobs", async (req, res) => {
   const jobs = await Job.find().sort({ postedAt: -1 });
   res.json(jobs);
@@ -61,9 +59,8 @@ app.get("/api/jobs/:id", async (req, res) => {
   res.json(job);
 });
 
-// ================== Resume Checker Route ==================
 app.post("/api/resume-checker", (req, res) => {
-  const form = new IncomingForm({ multiples: false }); // ✅ fixed
+  const form = new IncomingForm({ multiples: false });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return res.status(500).json({ error: "File upload failed" });
@@ -73,7 +70,6 @@ app.post("/api/resume-checker", (req, res) => {
 
     try {
       if (files.resume) {
-        // Handle both v1 and v2 file structure
         const filePath = files.resume.filepath || files.resume[0]?.filepath;
         if (!filePath) throw new Error("Resume file not found");
 
@@ -82,7 +78,6 @@ app.post("/api/resume-checker", (req, res) => {
         resumeText = pdfData.text;
       }
 
-      // ================== Google Gemini AI ==================
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
@@ -93,30 +88,19 @@ app.post("/api/resume-checker", (req, res) => {
         Resume: ${resumeText}
         Job Description: ${jobDesc}
 
-        Respond with only valid JSON. Do not include explanations.
-        Example format:
-        {
-          "score": 85,
-          "issues": ["Resume missing keywords like React", "Formatting not ATS-friendly"],
-          "suggestions": ["Add React projects", "Use simpler formatting"]
-        }
+        Respond with only valid JSON.
       `;
 
       const result = await model.generateContent(prompt);
       const text = result.response.text();
 
-      // 🛠 Extract JSON safely
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       let feedback;
 
       if (jsonMatch) {
         feedback = JSON.parse(jsonMatch[0]);
       } else {
-        feedback = {
-          score: 0,
-          issues: ["AI did not return JSON"],
-          suggestions: [],
-        };
+        feedback = { score: 0, issues: ["AI did not return JSON"], suggestions: [] };
       }
 
       res.json(feedback);
@@ -129,13 +113,6 @@ app.post("/api/resume-checker", (req, res) => {
 
 
 
-
-
-
-
-        
-
-     
 // ================== Start Server ==================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
