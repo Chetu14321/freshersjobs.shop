@@ -11,10 +11,13 @@ import About from "./pages/About";
 import Contact from "./pages/contact";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/terms";
-import ResumeChecker from "./components/resumeChecker"; // ✅ NEW IMPORT
+import ResumeChecker from "./components/resumeChecker"; 
+import { ThemeProvider } from "./components/ThemeContex";
+
 
 function App() {
   return (
+    <ThemeProvider>
     <Router>
       <Navbar />
 
@@ -49,6 +52,7 @@ function App() {
       <AdBanner />
       <Footer />
     </Router>
+  </ThemeProvider>  
   );
 }
 

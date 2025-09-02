@@ -1,0 +1,42 @@
+/* .job-description p {
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.job-description ul {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.job-description li {
+  margin-bottom: 0.5rem;
+}
+
+.job-description strong {
+  display: block;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #212529;
+  border-left: 3px solid #0d6efd;
+  padding-left: 0.5rem;
+}
+
+/* Preview mode (show limited text) */
+/* .job-preview {
+  max-height: 400px;
+  overflow: hidden;
+  position: relative;
+}
+
+.job-preview::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 60px;
+  width: 100%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #f8f9fa);
+} */ 

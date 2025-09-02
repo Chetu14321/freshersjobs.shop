@@ -83,12 +83,19 @@ app.post("/api/resume-checker", (req, res) => {
 
       const prompt = `
         You are an ATS (Applicant Tracking System) expert.
-        Analyze this resume for ATS-friendliness.
+        Analyze this resume for ATS-friendliness compared to the given job description.
 
         Resume: ${resumeText}
         Job Description: ${jobDesc}
 
-        Respond with only valid JSON.
+        Respond ONLY with valid JSON in the following format:
+        {
+          "ats_score": number (0-100),
+          "ats_friendliness": "Excellent | Good | Average | Poor",
+          "strengths": [list of strengths],
+          "weaknesses": [list of weaknesses],
+          "recommendations": [list of actionable recommendations]
+        }
       `;
 
       const result = await model.generateContent(prompt);
@@ -100,7 +107,7 @@ app.post("/api/resume-checker", (req, res) => {
       if (jsonMatch) {
         feedback = JSON.parse(jsonMatch[0]);
       } else {
-        feedback = { score: 0, issues: ["AI did not return JSON"], suggestions: [] };
+        feedback = { ats_score: 0, ats_friendliness: "Poor", strengths: [], weaknesses: ["AI did not return JSON"], recommendations: [] };
       }
 
       res.json(feedback);
@@ -110,6 +117,7 @@ app.post("/api/resume-checker", (req, res) => {
     }
   });
 });
+
 
 // ================== Serve React Frontend ==================
 // Serve static files from React build

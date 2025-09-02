@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { CheckCircle, AlertCircle, Lightbulb } from "lucide-react";
+import { CheckCircle, AlertCircle, Lightbulb, Gauge } from "lucide-react";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./ResumeChecker.css";
 
@@ -30,13 +30,14 @@ function ResumeChecker() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const data = response.data?.resume_analysis || {};
+      const data = response.data || {};
 
       setResult({
+        atsScore: data.ats_score || 0,
         atsFriendliness: data.ats_friendliness || "Unknown",
-        strengths: data.Strengths || [],
-        weaknesses: data.Weaknesses || [],
-        recommendations: data.Recommendations || [],
+        strengths: data.strengths || [],
+        weaknesses: data.weaknesses || [],
+        recommendations: data.recommendations || [],
       });
     } catch (err) {
       console.error(err);
@@ -79,6 +80,12 @@ function ResumeChecker() {
 
       {!loading && result && (
         <div className="mt-4 card p-4 shadow-lg border-0 fade-in">
+          {/* ATS Score */}
+          <h4 className="fw-bold mb-3 d-flex align-items-center gap-2">
+            <Gauge size={22} className="text-primary" /> ATS Score
+          </h4>
+          <p className="fw-semibold fs-5">{result.atsScore} / 100</p>
+
           {/* ATS Friendliness */}
           <h4 className="fw-bold mb-3">ATS Friendliness</h4>
           <p className="fw-semibold">{result.atsFriendliness}</p>
