@@ -15,45 +15,47 @@ import ResumeChecker from "./components/resumeChecker";
 import { ThemeProvider } from "./components/ThemeContex";
 
 
+import ChatWidget from "./components/ChatWidget";  // ⬅️ import this
+
 function App() {
   return (
     <ThemeProvider>
-    <Router>
-      <Navbar />
+      <Router>
+        <Navbar />
 
-      <div className="container-fluid mt-4">
-        <div className="row">
-          {/* Main Content */}
-          <div className="col-lg-8 col-md-12">
-            <Routes>
-              <Route path="/" element={<JobList />} />
-              <Route path="/job/:id" element={<JobDetails />} />
-              <Route path="/internships" element={<Intership />} />
-              <Route path="/locations" element={<h2>Locations Coming Soon</h2>} />
+        <div className="container-fluid mt-4">
+          <div className="row">
+            <div className="col-lg-8 col-md-12">
+              <Routes>
+                <Route path="/" element={<JobList />} />
+                <Route path="/job/:id" element={<JobDetails />} />
+                <Route path="/internships" element={<Intership />} />
+                <Route path="/locations" element={<h2>Locations Coming Soon</h2>} />
 
-              {/* New Trust Pages */}
-              <Route path="/about" element={<About />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/terms" element={<Terms />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
 
-              {/* ✅ New ATS Resume Checker Page */}
-              <Route path="/resume-checker" element={<ResumeChecker />} />
-            </Routes>
-          </div>
+                <Route path="/resume-checker" element={<ResumeChecker />} />
+              </Routes>
+            </div>
 
-          {/* Sidebar */}
-          <div className="col-lg-4 d-none d-lg-block">
-            <Sidebar />
+            <div className="col-lg-4 d-none d-lg-block">
+              <Sidebar />
+            </div>
           </div>
         </div>
-      </div>
 
-      <AdBanner />
-      <Footer />
-    </Router>
-  </ThemeProvider>  
+        <AdBanner />
+        <Footer />
+
+        {/* ⬇️ Floating Chat Widget */}
+        <ChatWidget />
+      </Router>
+    </ThemeProvider>
   );
 }
+
 
 export default App;

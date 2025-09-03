@@ -1,3 +1,4 @@
+// index.js (updated)
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -63,7 +64,10 @@ app.post("/api/resume-checker", (req, res) => {
   const form = new IncomingForm({ multiples: false });
 
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "File upload failed" });
+    if (err) {
+      console.error("File upload parse error:", err);
+      return res.status(500).json({ error: "File upload failed" });
+    }
 
     const jobDesc = fields.jobDesc || "";
     let resumeText = "";
@@ -76,6 +80,11 @@ app.post("/api/resume-checker", (req, res) => {
         const buffer = fs.readFileSync(filePath);
         const pdfData = await pdfParse(buffer);
         resumeText = pdfData.text;
+      }
+
+      if (!process.env.GEMINI_API_KEY) {
+        console.error("GEMINI_API_KEY is not set.");
+        return res.status(500).json({ error: "AI provider not configured" });
       }
 
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -99,25 +108,94 @@ app.post("/api/resume-checker", (req, res) => {
       `;
 
       const result = await model.generateContent(prompt);
-      const text = result.response.text();
+      // result.response.text() (your previous usage). keep same approach:
+      const text = result.response && typeof result.response.text === "function"
+        ? result.response.text()
+        : result.response?.text || "";
 
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       let feedback;
 
       if (jsonMatch) {
-        feedback = JSON.parse(jsonMatch[0]);
+        try {
+          feedback = JSON.parse(jsonMatch[0]);
+        } catch (parseErr) {
+          console.error("JSON parse error from AI response:", parseErr);
+          feedback = {
+            ats_score: 0,
+            ats_friendliness: "Poor",
+            strengths: [],
+            weaknesses: ["AI returned invalid JSON"],
+            recommendations: [],
+          };
+        }
       } else {
-        feedback = { ats_score: 0, ats_friendliness: "Poor", strengths: [], weaknesses: ["AI did not return JSON"], recommendations: [] };
+        feedback = {
+          ats_score: 0,
+          ats_friendliness: "Poor",
+          strengths: [],
+          weaknesses: ["AI did not return JSON"],
+          recommendations: [],
+        };
       }
 
       res.json(feedback);
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "AI request failed" });
+      console.error("Resume checker error:", error);
+      console.error("Gemini API Error:", error.message || error);
+      res.status(500).json({ error: "AI request failed", details: error.message });
     }
   });
 });
 
+// ================== NEW: Chat endpoint (for the floating chatbox) ==================
+// POST /api/chat
+// Body: { message: string, history?: [{ role: "user"|"assistant", content: string }] }
+// Returns: { reply: string }
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message, history } = req.body;
+
+    if (!message && !(Array.isArray(history) && history.length)) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY is not set.");
+      return res.status(500).json({ error: "AI provider not configured" });
+    }
+
+    // construct a simple prompt that includes optional history
+    let prompt = "";
+    if (Array.isArray(history) && history.length) {
+      prompt += history
+        .map((h) => {
+          const role = h.role === "user" ? "User" : "Assistant";
+          return `${role}: ${h.content}`;
+        })
+        .join("\n");
+      if (message) prompt += `\nUser: ${message}\nAssistant:`;
+    } else {
+      prompt = `User: ${message}\nAssistant:`;
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const result = await model.generateContent(prompt);
+
+    const reply =
+      result.response && typeof result.response.text === "function"
+        ? result.response.text()
+        : result.response?.text || "";
+
+    res.json({ reply });
+  } catch (error) {
+    console.error("Gemini API Error (chat):", error);
+    // send limited details to client; full stack in server logs
+    res.status(500).json({ error: "AI request failed", details: error.message });
+  }
+});
 
 // ================== Serve React Frontend ==================
 // Serve static files from React build
