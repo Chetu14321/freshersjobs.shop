@@ -14,8 +14,8 @@ import Terms from "./pages/terms";
 import ResumeChecker from "./components/resumeChecker"; 
 import { ThemeProvider } from "./components/ThemeContex";
 
-
-import ChatWidget from "./components/ChatWidget";  // ⬅️ import this
+import ChatWidget from "./components/ChatWidget";  
+import AdzunaJobs from "./components/AIjobs";   // ⬅️ import the AI Jobs page
 
 function App() {
   return (
@@ -31,6 +31,8 @@ function App() {
                 <Route path="/job/:id" element={<JobDetails />} />
                 <Route path="/internships" element={<Intership />} />
                 <Route path="/locations" element={<h2>Locations Coming Soon</h2>} />
+
+                <Route path="/aijobs" element={<AdzunaJobs />} /> {/* ⬅️ NEW ROUTE */}
 
                 <Route path="/about" element={<About />} />
                 <Route path="/contact" element={<Contact />} />
@@ -56,6 +58,5 @@ function App() {
     </ThemeProvider>
   );
 }
-
 
 export default App;

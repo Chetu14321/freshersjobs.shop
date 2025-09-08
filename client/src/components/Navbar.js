@@ -2,13 +2,13 @@ import { Link, NavLink } from "react-router-dom";
 import {
   Briefcase,
   GraduationCap,
-  MapPin,
   Info,
   Mail,
   ShieldCheck,
   FileText,
   FileSearch,
   X,
+  Cpu, // ⬅️ AI Jobs Icon
 } from "lucide-react";
 
 export default function Navbar() {
@@ -50,22 +50,48 @@ export default function Navbar() {
         {/* Desktop Nav Links */}
         <ul className="navbar-nav ms-auto d-none d-lg-flex flex-row gap-4">
           <li className="nav-item">
-            <NavLink end className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/">
+            <NavLink
+              end
+              className="nav-link fw-semibold"
+              style={{ fontSize: "1.1rem" }}
+              to="/"
+            >
               Jobs
             </NavLink>
           </li>
           <li className="nav-item">
-            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/internships">
+            <NavLink
+              className="nav-link fw-semibold"
+              style={{ fontSize: "1.1rem" }}
+              to="/internships"
+            >
               Internships
             </NavLink>
           </li>
           <li className="nav-item">
-            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/resume-checker">
+            <NavLink
+              className="nav-link fw-semibold"
+              style={{ fontSize: "1.1rem" }}
+              to="/aijobs"
+            >
+              AI Jobs
+            </NavLink>
+          </li>
+          <li className="nav-item">
+            <NavLink
+              className="nav-link fw-semibold"
+              style={{ fontSize: "1.1rem" }}
+              to="/resume-checker"
+            >
               Resume ATS
             </NavLink>
           </li>
           <li className="nav-item">
-            <NavLink className="nav-link fw-semibold" style={{ fontSize: "1.1rem" }} to="/about">
+            <NavLink
+              className="nav-link fw-semibold"
+              style={{ fontSize: "1.1rem" }}
+              to="/about"
+            >
               About
             </NavLink>
           </li>
@@ -81,7 +107,10 @@ export default function Navbar() {
         style={{ width: "260px" }}
       >
         <div className="offcanvas-header border-bottom">
-          <h5 className="offcanvas-title fw-bold text-primary" id="mobileSidebarLabel">
+          <h5
+            className="offcanvas-title fw-bold text-primary"
+            id="mobileSidebarLabel"
+          >
             JobBoard Menu
           </h5>
           <button
@@ -116,7 +145,16 @@ export default function Navbar() {
                 <span className="fw-semibold">Internships</span>
               </NavLink>
             </li>
-            
+            <li className="list-group-item">
+              <NavLink
+                to="/aijobs"
+                onClick={closeOffcanvas}
+                className="d-flex align-items-center gap-2 text-decoration-none text-dark"
+              >
+                <Cpu size={18} className="text-danger" />
+                <span className="fw-semibold">AI Jobs</span>
+              </NavLink>
+            </li>
             <li className="list-group-item">
               <NavLink
                 to="/resume-checker"
