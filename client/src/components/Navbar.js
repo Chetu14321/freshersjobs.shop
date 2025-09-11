@@ -2,7 +2,6 @@ import { Link, NavLink } from "react-router-dom";
 import {
   Briefcase,
   GraduationCap,
-  MapPin,
   Info,
   Mail,
   ShieldCheck,
