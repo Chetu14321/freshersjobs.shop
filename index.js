@@ -275,7 +275,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // ================== Cron Job (Daily Job Emails) ==================
-cron.schedule("0 9 * * *", async () => {
+cron.schedule("25 10 * * *", async () => {
   try {
     const since = new Date();
     since.setDate(since.getDate() - 1);
