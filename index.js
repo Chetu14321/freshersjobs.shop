@@ -323,6 +323,10 @@ cron.schedule("25 10 * * *", async () => {
 // app.get("*", (req, res) => {
 //   res.sendFile(path.join(__dirname, "client", "build", "index.html"));
 // });
+app.get("/", (req, res) => {
+  res.send("✅ FreshersJobs Backend is running...");
+});
+
 
 // ================== Start Server ==================
 const PORT = process.env.PORT || 5000;
