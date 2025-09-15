@@ -34,6 +34,7 @@ mongoose
 const jobSchema = new mongoose.Schema({
   title: String,
   company: String,
+  img:String,
   description: String,
   location: String,
   isWFH: Boolean,
