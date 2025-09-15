@@ -31,10 +31,12 @@ mongoose
   .catch((err) => console.log(err));
 
 // ================== Job Schema ==================
+
+
 const jobSchema = new mongoose.Schema({
-  title: String,
-  company: String,
-  img:String,
+  title: { type: String, required: true },
+  company: { type: String, required: true },
+  img: String,
   description: String,
   location: String,
   isWFH: Boolean,
@@ -46,8 +48,18 @@ const jobSchema = new mongoose.Schema({
     default: "job",
   },
   postedAt: { type: Date, default: Date.now },
+
+  // NEW structured fields for table display
+  role: String,             // Job Role
+  qualification: String,    // B.E/B.Tech/M.E/M.Tech/M.Sc/MCA
+  batch: String,            // Eligible batches
+  experience: String,       // e.g., Freshers / 1-2 years
+  salary: String,           // Salary / CTC
+  lastDate: Date,           // Last date to apply
 });
+
 const Job = mongoose.model("Job", jobSchema);
+
 
 // ================== Subscriber Schema ==================
 const subscriberSchema = new mongoose.Schema({
