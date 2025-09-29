@@ -12,7 +12,13 @@ const PDFDocument = require("pdfkit");
 const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 
+// ⚡ PERFORMANCE IMPORTS
+const helmet = require("helmet");
+const compression = require("compression");
+const rateLimit = require("express-rate-limit");
+
 dotenv.config();
+
 console.log("EMAIL_USER:", process.env.MAIL_USER);
 console.log("EMAIL_PASS:", process.env.MAIL_PASS ? "Loaded ✅" : "❌ Missing");
 
@@ -20,6 +26,15 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// ⚡ PERFORMANCE MIDDLEWARE
+app.use(helmet());
+app.use(compression());
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+});
+app.use(limiter);
 
 // ================== MongoDB Connection ==================
 mongoose
@@ -31,8 +46,6 @@ mongoose
   .catch((err) => console.log(err));
 
 // ================== Job Schema ==================
-
-
 const jobSchema = new mongoose.Schema({
   title: { type: String, required: true },
   company: { type: String, required: true },
@@ -42,24 +55,16 @@ const jobSchema = new mongoose.Schema({
   isWFH: Boolean,
   tags: [String],
   applyUrl: String,
-  type: {
-    type: String,
-    enum: ["job", "internship"],
-    default: "job",
-  },
+  type: { type: String, enum: ["job", "internship"], default: "job" },
   postedAt: { type: Date, default: Date.now },
-
-  // NEW structured fields for table display
-  role: String,             // Job Role
-  qualification: String,    // B.E/B.Tech/M.E/M.Tech/M.Sc/MCA
-  batch: String,            // Eligible batches
-  experience: String,       // e.g., Freshers / 1-2 years
-  salary: String,           // Salary / CTC
-  lastDate: Date,           // Last date to apply
+  role: String,
+  qualification: String,
+  batch: String,
+  experience: String,
+  salary: String,
+  lastDate: Date,
 });
-
 const Job = mongoose.model("Job", jobSchema);
-
 
 // ================== Subscriber Schema ==================
 const subscriberSchema = new mongoose.Schema({
@@ -76,8 +81,6 @@ const transporter = nodemailer.createTransport({
     pass: process.env.MAIL_PASS,
   },
 });
-
-// verify transporter
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ SMTP Error:", error);
@@ -86,12 +89,25 @@ transporter.verify((error, success) => {
   }
 });
 
+// ================== Ping Route ==================
+app.get("/api/ping", (req, res) => {
+  res.status(200).send("✅ Server alive");
+});
 
 // ================== API Routes ==================
+
 // Jobs
 app.get("/api/jobs", async (req, res) => {
-  const jobs = await Job.find().sort({ postedAt: -1 });
-  res.json(jobs);
+  try {
+    const jobs = await Job.find().sort({ postedAt: -1 });
+
+    // ⚡ Cache for 60 seconds
+    res.set("Cache-Control", "public, max-age=60");
+    res.json(jobs);
+  } catch (err) {
+    console.error("Fetch jobs error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 app.post("/api/jobs", async (req, res) => {
@@ -109,23 +125,15 @@ app.get("/api/jobs/:id", async (req, res) => {
 app.post("/api/subscribe", async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
+    if (!email) return res.status(400).json({ error: "Email is required" });
 
-    // Check if already subscribed
     const existing = await Subscriber.findOne({ email });
-    if (existing) {
-      return res.status(400).json({ error: "Already subscribed" });
-    }
+    if (existing) return res.status(400).json({ error: "Already subscribed" });
 
-    // Save subscriber
     const subscriber = new Subscriber({ email });
     await subscriber.save();
 
-    // Send confirmation email
     await transporter.sendMail({
-      // from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
       from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
       to: email,
       subject: "🎉 Subscription Confirmed - Freshers Jobs Updates",
@@ -150,16 +158,12 @@ app.post("/api/subscribe", async (req, res) => {
   }
 });
 
-
 // Resume Checker
 app.post("/api/resume-checker", (req, res) => {
   const form = new IncomingForm({ multiples: false });
 
   form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error("File upload parse error:", err);
-      return res.status(500).json({ error: "File upload failed" });
-    }
+    if (err) return res.status(500).json({ error: "File upload failed" });
 
     const jobDesc = fields.jobDesc || "";
     let resumeText = "";
@@ -175,7 +179,6 @@ app.post("/api/resume-checker", (req, res) => {
       }
 
       if (!process.env.GEMINI_API_KEY) {
-        console.error("GEMINI_API_KEY is not set.");
         return res.status(500).json({ error: "AI provider not configured" });
       }
 
@@ -189,13 +192,13 @@ app.post("/api/resume-checker", (req, res) => {
         Resume: ${resumeText}
         Job Description: ${jobDesc}
 
-        Respond ONLY with valid JSON in the following format:
+        Respond ONLY with valid JSON:
         {
           "ats_score": number (0-100),
           "ats_friendliness": "Excellent | Good | Average | Poor",
-          "strengths": [list of strengths],
-          "weaknesses": [list of weaknesses],
-          "recommendations": [list of actionable recommendations]
+          "strengths": [list],
+          "weaknesses": [list],
+          "recommendations": [list]
         }
       `;
 
@@ -211,8 +214,7 @@ app.post("/api/resume-checker", (req, res) => {
       if (jsonMatch) {
         try {
           feedback = JSON.parse(jsonMatch[0]);
-        } catch (parseErr) {
-          console.error("JSON parse error from AI response:", parseErr);
+        } catch {
           feedback = {
             ats_score: 0,
             ats_friendliness: "Poor",
@@ -234,9 +236,7 @@ app.post("/api/resume-checker", (req, res) => {
       res.json(feedback);
     } catch (error) {
       console.error("Resume checker error:", error);
-      res
-        .status(500)
-        .json({ error: "AI request failed", details: error.message });
+      res.status(500).json({ error: "AI request failed", details: error.message });
     }
   });
 });
@@ -251,7 +251,6 @@ app.post("/api/chat", async (req, res) => {
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is not set.");
       return res.status(500).json({ error: "AI provider not configured" });
     }
 
@@ -281,9 +280,7 @@ app.post("/api/chat", async (req, res) => {
     res.json({ reply });
   } catch (error) {
     console.error("Gemini API Error (chat):", error);
-    res
-      .status(500)
-      .json({ error: "AI request failed", details: error.message });
+    res.status(500).json({ error: "AI request failed", details: error.message });
   }
 });
 
@@ -293,13 +290,8 @@ cron.schedule("25 10 * * *", async () => {
     const since = new Date();
     since.setDate(since.getDate() - 1);
 
-    const jobs = await Job.find({ postedAt: { $gte: since } }).sort({
-      postedAt: -1,
-    });
-    if (jobs.length === 0) {
-      console.log("No new jobs in last 24h.");
-      return;
-    }
+    const jobs = await Job.find({ postedAt: { $gte: since } }).sort({ postedAt: -1 });
+    if (jobs.length === 0) return;
 
     const subscribers = await Subscriber.find();
 
@@ -329,19 +321,11 @@ cron.schedule("25 10 * * *", async () => {
   }
 });
 
-// ================== Serve React Frontend ==================
-// app.use(express.static(path.join(__dirname, "client", "build")));
-
-// app.get("*", (req, res) => {
-//   res.sendFile(path.join(__dirname, "client", "build", "index.html"));
-// });
+// ================== Root Route ==================
 app.get("/", (req, res) => {
   res.send("✅ FreshersJobs Backend is running...");
 });
 
-
 // ================== Start Server ==================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on http://localhost:${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
