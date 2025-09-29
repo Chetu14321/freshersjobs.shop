@@ -143,7 +143,7 @@ app.post("/api/subscribe", async (req, res) => {
         <p>Thanks for subscribing! 🎯</p>
         <p>You’ll now receive <b>daily job updates</b> (last 24 hours) directly in your inbox.</p>
         <br/>
-        <p>👉 Stay tuned for the latest <b>Freshers Jobs & Internships</b>.</p>
+        <p>👉 Stay tuned for the latest <b>"Freshers" Jobs & Internships</b>.</p>
         <br/>
         <p style="font-size:12px;color:gray;">
           If this wasn’t you, you can ignore this email.
