@@ -3,52 +3,49 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const path = require("path");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { IncomingForm } = require("formidable");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const PDFDocument = require("pdfkit");
 const nodemailer = require("nodemailer");
 const cron = require("node-cron");
+const path = require("path");
 
 // ⚡ PERFORMANCE IMPORTS
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 
+// ✅ Prerender.io middleware
+const prerender = require("prerender-node");
+
+// Load .env
 dotenv.config();
 
-console.log("EMAIL_USER:", process.env.MAIL_USER);
-console.log("EMAIL_PASS:", process.env.MAIL_PASS ? "Loaded ✅" : "❌ Missing");
-
+// ================ Express App =================
 const app = express();
-
 app.use(cors());
 app.use(express.json());
-
-// ⚡ PERFORMANCE MIDDLEWARE
 app.use(helmet());
 app.use(compression());
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-});
-app.use(limiter);
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
-// ================== MongoDB Connection ==================
+// ================ Prerender.io Setup =================
+if (!process.env.PRERENDER_TOKEN) {
+  console.warn("⚠️ Prerender token not set in .env (PRERENDER_TOKEN)");
+}
+app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
+
+// ================ MongoDB Setup =================
 mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.log(err));
+  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
-// ================== Job Schema ==================
+// ================ Mongoose Schemas =================
 const jobSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  company: { type: String, required: true },
+  title: String,
+  company: String,
   img: String,
   description: String,
   location: String,
@@ -66,14 +63,13 @@ const jobSchema = new mongoose.Schema({
 });
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== Subscriber Schema ==================
 const subscriberSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   subscribedAt: { type: Date, default: Date.now },
 });
 const Subscriber = mongoose.model("Subscriber", subscriberSchema);
 
-// ================== Email Transporter ==================
+// ================ Email Setup =================
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -81,87 +77,122 @@ const transporter = nodemailer.createTransport({
     pass: process.env.MAIL_PASS,
   },
 });
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ SMTP Error:", error);
-  } else {
-    console.log("✅ SMTP Server is ready to send messages");
-  }
+transporter.verify((err) => {
+  if (err) console.error("❌ SMTP Error:", err);
+  else console.log("✅ SMTP Server ready");
 });
 
-// ================== Ping Route ==================
-app.get("/api/ping", (req, res) => {
-  res.status(200).send("✅ Server alive");
-});
+// ================ Gemini AI Setup =================
+if (!process.env.GEMINI_API_KEY) {
+  console.error("❌ Missing GEMINI_API_KEY in .env");
+}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
-// ================== API Routes ==================
+// ================ Routes =================
 
-// Jobs
+// Health check
+app.get("/api/ping", (req, res) => res.send("✅ Server is running"));
+
+// ✅ API to get jobs
 app.get("/api/jobs", async (req, res) => {
   try {
     const jobs = await Job.find().sort({ postedAt: -1 });
-
-    // ⚡ Cache for 60 seconds
     res.set("Cache-Control", "public, max-age=60");
     res.json(jobs);
   } catch (err) {
-    console.error("Fetch jobs error:", err);
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-app.post("/api/jobs", async (req, res) => {
-  const newJob = new Job(req.body);
-  await newJob.save();
-  res.json(newJob);
-});
-
-app.get("/api/jobs/:id", async (req, res) => {
-  const job = await Job.findById(req.params.id);
-  res.json(job);
-});
-
-// Subscribe
-app.post("/api/subscribe", async (req, res) => {
+// ✅ Server-rendered HTML for SEO bots
+app.get("/jobs", async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email is required" });
+    const jobs = await Job.find().sort({ postedAt: -1 });
 
+    let jobsHtml = jobs
+      .map(
+        (job) => `
+      <div class="job-card" itemscope itemtype="https://schema.org/JobPosting">
+        <h3 itemprop="title">${job.title}</h3>
+        <p>
+          <span itemprop="hiringOrganization">${job.company}</span> | 
+          <span itemprop="jobLocation">${job.location}</span> | 
+          ${job.type} | WFH: ${job.isWFH ? "Yes" : "No"}
+        </p>
+        <p itemprop="description">${job.description || ""}</p>
+        <a href="${job.applyUrl}" itemprop="url">Apply Now</a>
+      </div>`
+      )
+      .join("");
+
+    const noscriptFallback = `
+      <noscript>
+        <h2>Latest Fresher Jobs</h2>
+        <ul>
+          ${jobs
+            .map(
+              (job) =>
+                `<li>${job.title} at ${job.company} - <a href="${job.applyUrl}">Apply</a></li>`
+            )
+            .join("")}
+        </ul>
+      </noscript>
+    `;
+
+    res.send(`
+      <html>
+        <head>
+          <title>Freshers Jobs</title>
+          <meta name="description" content="Latest Fresher Jobs & Internships">
+          <meta name="robots" content="index, follow">
+          <link rel="canonical" href="https://freshersjobs.shop/jobs" />
+        </head>
+        <body>
+          <h1>FreshersJobs.shop - Latest Jobs</h1>
+          ${jobsHtml}
+          ${noscriptFallback}
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error loading jobs");
+  }
+});
+
+// ✅ Subscribe
+app.post("/api/subscribe", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
     const existing = await Subscriber.findOne({ email });
     if (existing) return res.status(400).json({ error: "Already subscribed" });
 
-    const subscriber = new Subscriber({ email });
-    await subscriber.save();
+    await new Subscriber({ email }).save();
 
     await transporter.sendMail({
       from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
       to: email,
-      subject: "🎉 Subscription Confirmed - Freshers Jobs Updates",
+      subject: "🎉 Subscription Confirmed - Freshers Jobs",
       html: `
         <h2>Welcome to FreshersJobs.shop 🚀</h2>
-        <p>Hi there 👋,</p>
-        <p>Thanks for subscribing! 🎯</p>
-        <p>You’ll now receive <b>daily job updates</b> (last 24 hours) directly in your inbox.</p>
-        <br/>
-        <p>👉 Stay tuned for the latest <b>"Freshers" Jobs & Internships</b>.</p>
-        <br/>
-        <p style="font-size:12px;color:gray;">
-          If this wasn’t you, you can ignore this email.
-        </p>
+        <p>Thanks for subscribing! You’ll receive daily job updates.</p>
       `,
     });
 
-    res.json({ message: "✅ Subscribed successfully! Confirmation email sent." });
+    res.json({ message: "✅ Subscribed successfully!" });
   } catch (err) {
-    console.error("Subscribe error:", err);
-    res.status(500).json({ error: "Failed to subscribe" });
+    console.error(err);
+    res.status(500).json({ error: "Subscription failed" });
   }
 });
 
-// Resume Checker
+// ✅ Resume Checker
 app.post("/api/resume-checker", (req, res) => {
-  const form = new IncomingForm({ multiples: false });
-
+  const form = new IncomingForm();
   form.parse(req, async (err, fields, files) => {
     if (err) return res.status(500).json({ error: "File upload failed" });
 
@@ -169,30 +200,19 @@ app.post("/api/resume-checker", (req, res) => {
     let resumeText = "";
 
     try {
-      if (files.resume) {
-        const filePath = files.resume.filepath || files.resume[0]?.filepath;
-        if (!filePath) throw new Error("Resume file not found");
+      const filePath = files.resume?.filepath || files.resume?.[0]?.filepath;
+      if (!filePath) throw new Error("Resume file not found");
 
-        const buffer = fs.readFileSync(filePath);
-        const pdfData = await pdfParse(buffer);
-        resumeText = pdfData.text;
-      }
-
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(500).json({ error: "AI provider not configured" });
-      }
-
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const buffer = fs.readFileSync(filePath);
+      const pdfData = await pdfParse(buffer);
+      resumeText = pdfData.text;
 
       const prompt = `
-        You are an ATS (Applicant Tracking System) expert.
-        Analyze this resume for ATS-friendliness compared to the given job description.
-
+        Analyze this resume compared to the job description.
         Resume: ${resumeText}
         Job Description: ${jobDesc}
 
-        Respond ONLY with valid JSON:
+        Respond with valid JSON:
         {
           "ats_score": number (0-100),
           "ats_friendliness": "Excellent | Good | Average | Poor",
@@ -202,130 +222,97 @@ app.post("/api/resume-checker", (req, res) => {
         }
       `;
 
-      const result = await model.generateContent(prompt);
-      const text =
-        result.response && typeof result.response.text === "function"
-          ? result.response.text()
-          : result.response?.text || "";
+      const result = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
 
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      let feedback;
+      const text = result.response.text();
+      const json = text.match(/\{[\s\S]*\}/);
+      const parsed = json ? JSON.parse(json[0]) : { ats_score: 0, ats_friendliness: "Poor" };
 
-      if (jsonMatch) {
-        try {
-          feedback = JSON.parse(jsonMatch[0]);
-        } catch {
-          feedback = {
-            ats_score: 0,
-            ats_friendliness: "Poor",
-            strengths: [],
-            weaknesses: ["AI returned invalid JSON"],
-            recommendations: [],
-          };
-        }
-      } else {
-        feedback = {
-          ats_score: 0,
-          ats_friendliness: "Poor",
-          strengths: [],
-          weaknesses: ["AI did not return JSON"],
-          recommendations: [],
-        };
-      }
-
-      res.json(feedback);
+      res.json(parsed);
     } catch (error) {
-      console.error("Resume checker error:", error);
-      res.status(500).json({ error: "AI request failed", details: error.message });
+      console.error(error);
+      res.status(500).json({ error: "Resume analysis failed" });
     }
   });
 });
 
-// Chat endpoint
+// ✅ AI Chat
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, history } = req.body;
+    if (!message) return res.status(400).json({ error: "Message is required" });
 
-    if (!message && !(Array.isArray(history) && history.length)) {
-      return res.status(400).json({ error: "message is required" });
-    }
+    let prompt = Array.isArray(history)
+      ? history
+          .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`)
+          .join("\n") + `\nUser: ${message}\nAssistant:`
+      : `User: ${message}\nAssistant:`;
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "AI provider not configured" });
-    }
+    const result = await aiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
 
-    let prompt = "";
-    if (Array.isArray(history) && history.length) {
-      prompt += history
-        .map((h) => {
-          const role = h.role === "user" ? "User" : "Assistant";
-          return `${role}: ${h.content}`;
-        })
-        .join("\n");
-      if (message) prompt += `\nUser: ${message}\nAssistant:`;
-    } else {
-      prompt = `User: ${message}\nAssistant:`;
-    }
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    const result = await model.generateContent(prompt);
-
-    const reply =
-      result.response && typeof result.response.text === "function"
-        ? result.response.text()
-        : result.response?.text || "";
-
-    res.json({ reply });
-  } catch (error) {
-    console.error("Gemini API Error (chat):", error);
-    res.status(500).json({ error: "AI request failed", details: error.message });
+    res.json({ reply: result.response.text() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "AI request failed" });
   }
 });
 
-// ================== Cron Job (Daily Job Emails) ==================
+// ✅ Daily Job Mail Cron
 cron.schedule("25 10 * * *", async () => {
   try {
     const since = new Date();
     since.setDate(since.getDate() - 1);
 
-    const jobs = await Job.find({ postedAt: { $gte: since } }).sort({ postedAt: -1 });
-    if (jobs.length === 0) return;
-
+    const jobs = await Job.find({ postedAt: { $gte: since } });
     const subscribers = await Subscriber.find();
 
-    const jobListHtml = jobs
-      .map(
-        (job) =>
-          `<li><a href="${job.applyUrl}">${job.title} at ${job.company}</a> (${job.location})</li>`
-      )
+    if (!jobs.length || !subscribers.length) return;
+
+    const jobList = jobs
+      .map((j) => `<li><a href="${j.applyUrl}">${j.title} at ${j.company}</a></li>`)
       .join("");
 
     for (let sub of subscribers) {
       await transporter.sendMail({
         from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
         to: sub.email,
-        subject: "🔥 Daily Freshers Jobs Updates",
-        html: `
-          <h3>Latest Jobs (Last 24 Hours)</h3>
-          <ul>${jobListHtml}</ul>
-          <p>Visit <a href="https://freshersjobs.shop">freshersjobs.shop</a> for more.</p>
-        `,
+        subject: "🔥 Latest Jobs for Freshers",
+        html: `<ul>${jobList}</ul><p>Visit <a href="https://freshersjobs.shop">freshersjobs.shop</a></p>`,
       });
     }
 
-    console.log(`📧 Sent job updates to ${subscribers.length} subscribers`);
+    console.log(`📧 Sent to ${subscribers.length} subscribers`);
   } catch (err) {
     console.error("Cron job error:", err);
   }
 });
 
-// ================== Root Route ==================
+// ✅ Robots.txt and Sitemap
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain");
+  res.send(`User-agent: *\nAllow: /\nSitemap: https://freshersjobs.shop/sitemap.xml`);
+});
+
+app.get("/sitemap.xml", async (req, res) => {
+  const jobs = await Job.find().sort({ postedAt: -1 });
+  const urls = jobs
+    .map((j) => `<url><loc>https://freshersjobs.shop/jobs/${j._id}</loc></url>`)
+    .join("");
+  res.type("application/xml");
+  res.send(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
+});
+
+// ✅ Root Route
 app.get("/", (req, res) => {
   res.send("✅ FreshersJobs Backend is running...");
 });
 
-// ================== Start Server ==================
+// ================ Start Server =================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
