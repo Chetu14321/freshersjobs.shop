@@ -1,11 +1,13 @@
-// ================== Imports ==================
+// remove  ai configration  from this code // ================== Imports ==================
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const fs = require("fs");
+const pdfParse = require("pdf-parse");
 const { IncomingForm } = require("formidable");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 const path = require("path");
 
@@ -66,6 +68,19 @@ const subscriberSchema = new mongoose.Schema({
   subscribedAt: { type: Date, default: Date.now },
 });
 const Subscriber = mongoose.model("Subscriber", subscriberSchema);
+
+// ================ Email Setup =================
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.MAIL_USER,
+    pass: process.env.MAIL_PASS,
+  },
+});
+transporter.verify((err) => {
+  if (err) console.error("❌ SMTP Error:", err);
+  else console.log("✅ SMTP Server ready");
+});
 
 // ================ Gemini AI Setup =================
 if (!process.env.GEMINI_API_KEY) {
@@ -147,7 +162,7 @@ app.get("/jobs", async (req, res) => {
   }
 });
 
-// ✅ Subscribe (DB only, no email)
+// ✅ Subscribe
 app.post("/api/subscribe", async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: "Email is required" });
@@ -157,6 +172,17 @@ app.post("/api/subscribe", async (req, res) => {
     if (existing) return res.status(400).json({ error: "Already subscribed" });
 
     await new Subscriber({ email }).save();
+
+    await transporter.sendMail({
+      from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
+      to: email,
+      subject: "🎉 Subscription Confirmed - Freshers Jobs",
+      html: `
+        <h2>Welcome to FreshersJobs.shop 🚀</h2>
+        <p>Thanks for subscribing! You’ll receive daily job updates.</p>
+      `,
+    });
+
     res.json({ message: "✅ Subscribed successfully!" });
   } catch (err) {
     console.error(err);
@@ -164,7 +190,7 @@ app.post("/api/subscribe", async (req, res) => {
   }
 });
 
-// ✅ Resume Checker (using AI)
+// ✅ Resume Checker
 app.post("/api/resume-checker", (req, res) => {
   const form = new IncomingForm();
   form.parse(req, async (err, fields, files) => {
@@ -178,7 +204,7 @@ app.post("/api/resume-checker", (req, res) => {
       if (!filePath) throw new Error("Resume file not found");
 
       const buffer = fs.readFileSync(filePath);
-      const pdfData = await require("pdf-parse")(buffer);
+      const pdfData = await pdfParse(buffer);
       resumeText = pdfData.text;
 
       const prompt = `
@@ -235,14 +261,31 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// ✅ Daily Job Cron (DB only, no email)
+// ✅ Daily Job Mail Cron
 cron.schedule("25 10 * * *", async () => {
   try {
     const since = new Date();
     since.setDate(since.getDate() - 1);
+
     const jobs = await Job.find({ postedAt: { $gte: since } });
-    // Email removed, nothing sent
-    console.log(`📊 Checked ${jobs.length} jobs for daily cron.`);
+    const subscribers = await Subscriber.find();
+
+    if (!jobs.length || !subscribers.length) return;
+
+    const jobList = jobs
+      .map((j) => `<li><a href="${j.applyUrl}">${j.title} at ${j.company}</a></li>`)
+      .join("");
+
+    for (let sub of subscribers) {
+      await transporter.sendMail({
+        from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
+        to: sub.email,
+        subject: "🔥 Latest Jobs for Freshers",
+        html: `<ul>${jobList}</ul><p>Visit <a href="https://freshersjobs.shop">freshersjobs.shop</a></p>`,
+      });
+    }
+
+    console.log(`📧 Sent to ${subscribers.length} subscribers`);
   } catch (err) {
     console.error("Cron job error:", err);
   }
@@ -270,4 +313,6 @@ app.get("/", (req, res) => {
 
 // ================ Start Server =================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
