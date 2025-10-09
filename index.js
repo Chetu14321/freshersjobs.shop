@@ -105,6 +105,17 @@ app.get("/api/jobs", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+// Get single job by ID
+app.get("/api/jobs/:id", async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    res.json(job);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 // ✅ Server-rendered HTML for SEO bots
 app.get("/jobs", async (req, res) => {
