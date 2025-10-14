@@ -1,4 +1,4 @@
-// remove  ai configration  from this code // ================== Imports ==================
+// ================== Imports ==================
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -7,7 +7,6 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { IncomingForm } = require("formidable");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 const path = require("path");
 
@@ -69,19 +68,6 @@ const subscriberSchema = new mongoose.Schema({
 });
 const Subscriber = mongoose.model("Subscriber", subscriberSchema);
 
-// ================ Email Setup =================
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
-  },
-});
-transporter.verify((err) => {
-  if (err) console.error("❌ SMTP Error:", err);
-  else console.log("✅ SMTP Server ready");
-});
-
 // ================ Gemini AI Setup =================
 if (!process.env.GEMINI_API_KEY) {
   console.error("❌ Missing GEMINI_API_KEY in .env");
@@ -105,6 +91,7 @@ app.get("/api/jobs", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 // Get single job by ID
 app.get("/api/jobs/:id", async (req, res) => {
   try {
@@ -173,33 +160,8 @@ app.get("/jobs", async (req, res) => {
   }
 });
 
-// ✅ Subscribe
-app.post("/api/subscribe", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email is required" });
+// ✅ Subscribe (stores emails only)
 
-  try {
-    const existing = await Subscriber.findOne({ email });
-    if (existing) return res.status(400).json({ error: "Already subscribed" });
-
-    await new Subscriber({ email }).save();
-
-    await transporter.sendMail({
-      from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
-      to: email,
-      subject: "🎉 Subscription Confirmed - Freshers Jobs",
-      html: `
-        <h2>Welcome to FreshersJobs.shop 🚀</h2>
-        <p>Thanks for subscribing! You’ll receive daily job updates.</p>
-      `,
-    });
-
-    res.json({ message: "✅ Subscribed successfully!" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Subscription failed" });
-  }
-});
 
 // ✅ Resume Checker
 app.post("/api/resume-checker", (req, res) => {
@@ -269,36 +231,6 @@ app.post("/api/chat", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "AI request failed" });
-  }
-});
-
-// ✅ Daily Job Mail Cron
-cron.schedule("25 10 * * *", async () => {
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - 1);
-
-    const jobs = await Job.find({ postedAt: { $gte: since } });
-    const subscribers = await Subscriber.find();
-
-    if (!jobs.length || !subscribers.length) return;
-
-    const jobList = jobs
-      .map((j) => `<li><a href="${j.applyUrl}">${j.title} at ${j.company}</a></li>`)
-      .join("");
-
-    for (let sub of subscribers) {
-      await transporter.sendMail({
-        from: `"Freshers Jobs" <${process.env.MAIL_USER}>`,
-        to: sub.email,
-        subject: "🔥 Latest Jobs for Freshers",
-        html: `<ul>${jobList}</ul><p>Visit <a href="https://freshersjobs.shop">freshersjobs.shop</a></p>`,
-      });
-    }
-
-    console.log(`📧 Sent to ${subscribers.length} subscribers`);
-  } catch (err) {
-    console.error("Cron job error:", err);
   }
 });
 
