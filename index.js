@@ -1,4 +1,4 @@
-// remove  ai configration  from this code // ================== Imports ==================
+// ================== Imports ==================
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -6,7 +6,6 @@ const dotenv = require("dotenv");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { IncomingForm } = require("formidable");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 const path = require("path");
@@ -81,13 +80,6 @@ transporter.verify((err) => {
   if (err) console.error("❌ SMTP Error:", err);
   else console.log("✅ SMTP Server ready");
 });
-
-// ================ Gemini AI Setup =================
-if (!process.env.GEMINI_API_KEY) {
-  console.error("❌ Missing GEMINI_API_KEY in .env");
-}
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
 // ================ Routes =================
 
@@ -198,77 +190,6 @@ app.post("/api/subscribe", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Subscription failed" });
-  }
-});
-
-// ✅ Resume Checker
-app.post("/api/resume-checker", (req, res) => {
-  const form = new IncomingForm();
-  form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "File upload failed" });
-
-    const jobDesc = fields.jobDesc || "";
-    let resumeText = "";
-
-    try {
-      const filePath = files.resume?.filepath || files.resume?.[0]?.filepath;
-      if (!filePath) throw new Error("Resume file not found");
-
-      const buffer = fs.readFileSync(filePath);
-      const pdfData = await pdfParse(buffer);
-      resumeText = pdfData.text;
-
-      const prompt = `
-        Analyze this resume compared to the job description.
-        Resume: ${resumeText}
-        Job Description: ${jobDesc}
-
-        Respond with valid JSON:
-        {
-          "ats_score": number (0-100),
-          "ats_friendliness": "Excellent | Good | Average | Poor",
-          "strengths": [list],
-          "weaknesses": [list],
-          "recommendations": [list]
-        }
-      `;
-
-      const result = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
-
-      const text = result.response.text();
-      const json = text.match(/\{[\s\S]*\}/);
-      const parsed = json ? JSON.parse(json[0]) : { ats_score: 0, ats_friendliness: "Poor" };
-
-      res.json(parsed);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Resume analysis failed" });
-    }
-  });
-});
-
-// ✅ AI Chat
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { message, history } = req.body;
-    if (!message) return res.status(400).json({ error: "Message is required" });
-
-    let prompt = Array.isArray(history)
-      ? history
-          .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`)
-          .join("\n") + `\nUser: ${message}\nAssistant:`
-      : `User: ${message}\nAssistant:`;
-
-    const result = await aiModel.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    });
-
-    res.json({ reply: result.response.text() });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "AI request failed" });
   }
 });
 
