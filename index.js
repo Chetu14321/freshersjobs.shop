@@ -15,7 +15,12 @@ const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 
-// ✅ Prerender.io middleware
+// ⚡ GOOGLE OAUTH IMPORTS
+const passport = require("passport");
+const cookieParser = require("cookie-parser");
+const authRoutes = require("./auth");
+
+// Prerender.io middleware
 const prerender = require("prerender-node");
 
 // Load .env
@@ -23,10 +28,12 @@ dotenv.config();
 
 // ================ Express App =================
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
 app.use(express.json());
 app.use(helmet());
 app.use(compression());
+app.use(cookieParser());
+app.use(passport.initialize());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
 // ================ Prerender.io Setup =================
@@ -75,12 +82,30 @@ if (!process.env.GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
-// ================ Routes =================
+// ================ Google OAuth Routes =================
+app.use("/auth", authRoutes);
+
+// ================ API Routes =================
 
 // Health check
 app.get("/api/ping", (req, res) => res.send("✅ Server is running"));
 
-// ✅ API to get jobs
+// Get logged in user from token
+const jwt = require("jsonwebtoken");
+
+app.get("/api/me", (req, res) => {
+  const token = req.cookies?.token;
+  if (!token) return res.status(401).json({ message: "Not logged in" });
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    res.json({ user });
+  } catch {
+    res.status(401).json({ message: "Invalid token" });
+  }
+});
+
+// Get all jobs
 app.get("/api/jobs", async (req, res) => {
   try {
     const jobs = await Job.find().sort({ postedAt: -1 });
@@ -92,19 +117,18 @@ app.get("/api/jobs", async (req, res) => {
   }
 });
 
-// Get single job by ID
+// Get single job
 app.get("/api/jobs/:id", async (req, res) => {
   try {
     const job = await Job.findById(req.params.id);
     if (!job) return res.status(404).json({ error: "Job not found" });
     res.json(job);
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// ✅ Server-rendered HTML for SEO bots
+// SEO jobs route
 app.get("/jobs", async (req, res) => {
   try {
     const jobs = await Job.find().sort({ postedAt: -1 });
@@ -125,119 +149,72 @@ app.get("/jobs", async (req, res) => {
       )
       .join("");
 
-    const noscriptFallback = `
-      <noscript>
-        <h2>Latest Fresher Jobs</h2>
-        <ul>
-          ${jobs
-            .map(
-              (job) =>
-                `<li>${job.title} at ${job.company} - <a href="${job.applyUrl}">Apply</a></li>`
-            )
-            .join("")}
-        </ul>
-      </noscript>
-    `;
-
     res.send(`
       <html>
         <head>
           <title>Freshers Jobs</title>
           <meta name="description" content="Latest Fresher Jobs & Internships">
-          <meta name="robots" content="index, follow">
           <link rel="canonical" href="https://freshersjobs.shop/jobs" />
         </head>
         <body>
           <h1>FreshersJobs.shop - Latest Jobs</h1>
           ${jobsHtml}
-          ${noscriptFallback}
         </body>
       </html>
     `);
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).send("Error loading jobs");
   }
 });
 
-// ✅ Subscribe (stores emails only)
-
-
-// ✅ Resume Checker
+// Resume Checker
 app.post("/api/resume-checker", (req, res) => {
   const form = new IncomingForm();
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "File upload failed" });
-
-    const jobDesc = fields.jobDesc || "";
-    let resumeText = "";
-
     try {
-      const filePath = files.resume?.filepath || files.resume?.[0]?.filepath;
-      if (!filePath) throw new Error("Resume file not found");
-
+      const filePath = files.resume?.filepath || files.resume[0]?.filepath;
       const buffer = fs.readFileSync(filePath);
       const pdfData = await pdfParse(buffer);
-      resumeText = pdfData.text;
 
       const prompt = `
-        Analyze this resume compared to the job description.
-        Resume: ${resumeText}
-        Job Description: ${jobDesc}
-
-        Respond with valid JSON:
-        {
-          "ats_score": number (0-100),
-          "ats_friendliness": "Excellent | Good | Average | Poor",
-          "strengths": [list],
-          "weaknesses": [list],
-          "recommendations": [list]
-        }
+        Analyze this resume for ATS:
+        Resume: ${pdfData.text}
+        Job Description: ${fields.jobDesc}
       `;
 
       const result = await aiModel.generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       });
 
-      const text = result.response.text();
-      const json = text.match(/\{[\s\S]*\}/);
-      const parsed = json ? JSON.parse(json[0]) : { ats_score: 0, ats_friendliness: "Poor" };
-
-      res.json(parsed);
+      const output = result.response.text();
+      const jsonMatch = output.match(/\{[\s\S]*\}/);
+      res.json(jsonMatch ? JSON.parse(jsonMatch[0]) : {});
     } catch (error) {
-      console.error(error);
       res.status(500).json({ error: "Resume analysis failed" });
     }
   });
 });
 
-// ✅ AI Chat
+// AI Chat
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, history } = req.body;
-    if (!message) return res.status(400).json({ error: "Message is required" });
-
-    let prompt = Array.isArray(history)
-      ? history
-          .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`)
-          .join("\n") + `\nUser: ${message}\nAssistant:`
-      : `User: ${message}\nAssistant:`;
+    const { message } = req.body;
 
     const result = await aiModel.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts: [{ text: message }] }],
     });
 
     res.json({ reply: result.response.text() });
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ error: "AI request failed" });
   }
 });
 
-// ✅ Robots.txt and Sitemap
+// Robots + Sitemap
 app.get("/robots.txt", (req, res) => {
-  res.type("text/plain");
-  res.send(`User-agent: *\nAllow: /\nSitemap: https://freshersjobs.shop/sitemap.xml`);
+  res.type("text/plain").send(
+    `User-agent: *\nAllow: /\nSitemap: https://freshersjobs.shop/sitemap.xml`
+  );
 });
 
 app.get("/sitemap.xml", async (req, res) => {
@@ -245,16 +222,17 @@ app.get("/sitemap.xml", async (req, res) => {
   const urls = jobs
     .map((j) => `<url><loc>https://freshersjobs.shop/jobs/${j._id}</loc></url>`)
     .join("");
-  res.type("application/xml");
-  res.send(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
+  res.type("application/xml").send(
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`
+  );
 });
 
-// ✅ Root Route
+// Root
 app.get("/", (req, res) => {
-  res.send("✅ FreshersJobs Backend is running...");
+  res.send("✅ FreshersJobs Backend is running with Google OAuth");
 });
 
-// ================ Start Server =================
+// Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`🚀 Server running on http://localhost:${PORT}`)
