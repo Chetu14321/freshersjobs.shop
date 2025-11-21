@@ -10,25 +10,32 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const cron = require("node-cron");
 const path = require("path");
 
-// ⚡ PERFORMANCE IMPORTS
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 
-// ⚡ GOOGLE OAUTH IMPORTS
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
 
-// Prerender.io middleware
 const prerender = require("prerender-node");
-
-// Load .env
 dotenv.config();
 
-// ================ Express App =================
+const jwt = require("jsonwebtoken");
+
+// ================== Express App ==================
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
+app.set("trust proxy", 1);   // 🔥 REQUIRED FOR COOKIES ON RENDER
+
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
+
 app.use(express.json());
 app.use(helmet());
 app.use(compression());
@@ -36,19 +43,19 @@ app.use(cookieParser());
 app.use(passport.initialize());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
-// ================ Prerender.io Setup =================
+// ================== Prerender.io ==================
 if (!process.env.PRERENDER_TOKEN) {
-  console.warn("⚠️ Prerender token not set in .env (PRERENDER_TOKEN)");
+  console.warn("⚠️ Prerender token not set in .env");
 }
 app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
 
-// ================ MongoDB Setup =================
+// ================== MongoDB ==================
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected.."))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// ================ Mongoose Schemas =================
+// ================== Schemas ==================
 const jobSchema = new mongoose.Schema({
   title: String,
   company: String,
@@ -67,34 +74,32 @@ const jobSchema = new mongoose.Schema({
   salary: String,
   lastDate: Date,
 });
+
 const Job = mongoose.model("Job", jobSchema);
 
+// ================ Subscribers ================
 const subscriberSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   subscribedAt: { type: Date, default: Date.now },
 });
+
 const Subscriber = mongoose.model("Subscriber", subscriberSchema);
 
-// ================ Gemini AI Setup =================
-if (!process.env.GEMINI_API_KEY) {
-  console.error("❌ Missing GEMINI_API_KEY in .env");
-}
+// ================== Gemini AI ==================
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
-// ================ Google OAuth Routes =================
+// ================== Google OAuth ==================
 app.use("/auth", authRoutes);
 
-// ================ API Routes =================
+// ================== API ROUTES ==================
 
 // Health check
-app.get("/api/ping", (req, res) => res.send("✅ Server is running"));
+app.get("/api/ping", (req, res) => res.send("Server is running"));
 
-// Get logged in user from token
-const jwt = require("jsonwebtoken");
-
+// Return logged-in user from cookie
 app.get("/api/me", (req, res) => {
-  const token = req.cookies?.token;
+  const token = req.cookies.token;
   if (!token) return res.status(401).json({ message: "Not logged in" });
 
   try {
@@ -107,69 +112,22 @@ app.get("/api/me", (req, res) => {
 
 // Get all jobs
 app.get("/api/jobs", async (req, res) => {
-  try {
-    const jobs = await Job.find().sort({ postedAt: -1 });
-    res.set("Cache-Control", "public, max-age=60");
-    res.json(jobs);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
+  const jobs = await Job.find().sort({ postedAt: -1 });
+  res.set("Cache-Control", "public, max-age=60");
+  res.json(jobs);
 });
 
 // Get single job
 app.get("/api/jobs/:id", async (req, res) => {
-  try {
-    const job = await Job.findById(req.params.id);
-    if (!job) return res.status(404).json({ error: "Job not found" });
-    res.json(job);
-  } catch {
-    res.status(500).json({ error: "Server error" });
-  }
+  const job = await Job.findById(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  res.json(job);
 });
 
-// SEO jobs route
-app.get("/jobs", async (req, res) => {
-  try {
-    const jobs = await Job.find().sort({ postedAt: -1 });
-
-    let jobsHtml = jobs
-      .map(
-        (job) => `
-      <div class="job-card" itemscope itemtype="https://schema.org/JobPosting">
-        <h3 itemprop="title">${job.title}</h3>
-        <p>
-          <span itemprop="hiringOrganization">${job.company}</span> | 
-          <span itemprop="jobLocation">${job.location}</span> | 
-          ${job.type} | WFH: ${job.isWFH ? "Yes" : "No"}
-        </p>
-        <p itemprop="description">${job.description || ""}</p>
-        <a href="${job.applyUrl}" itemprop="url">Apply Now</a>
-      </div>`
-      )
-      .join("");
-
-    res.send(`
-      <html>
-        <head>
-          <title>Freshers Jobs</title>
-          <meta name="description" content="Latest Fresher Jobs & Internships">
-          <link rel="canonical" href="https://freshersjobs.shop/jobs" />
-        </head>
-        <body>
-          <h1>FreshersJobs.shop - Latest Jobs</h1>
-          ${jobsHtml}
-        </body>
-      </html>
-    `);
-  } catch {
-    res.status(500).send("Error loading jobs");
-  }
-});
-
-// Resume Checker
+// ================== Resume ATS ==================
 app.post("/api/resume-checker", (req, res) => {
   const form = new IncomingForm();
+
   form.parse(req, async (err, fields, files) => {
     try {
       const filePath = files.resume?.filepath || files.resume[0]?.filepath;
@@ -189,28 +147,26 @@ app.post("/api/resume-checker", (req, res) => {
       const output = result.response.text();
       const jsonMatch = output.match(/\{[\s\S]*\}/);
       res.json(jsonMatch ? JSON.parse(jsonMatch[0]) : {});
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Resume analysis failed" });
     }
   });
 });
 
-// AI Chat
+// ================== AI Chat ==================
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message } = req.body;
-
     const result = await aiModel.generateContent({
-      contents: [{ role: "user", parts: [{ text: message }] }],
+      contents: [{ role: "user", parts: [{ text: req.body.message }] }],
     });
 
     res.json({ reply: result.response.text() });
   } catch {
-    res.status(500).json({ error: "AI request failed" });
+    res.status(500).json({ error: "AI failed" });
   }
 });
 
-// Robots + Sitemap
+// ================== Robots & Sitemap ==================
 app.get("/robots.txt", (req, res) => {
   res.type("text/plain").send(
     `User-agent: *\nAllow: /\nSitemap: https://freshersjobs.shop/sitemap.xml`
@@ -219,20 +175,25 @@ app.get("/robots.txt", (req, res) => {
 
 app.get("/sitemap.xml", async (req, res) => {
   const jobs = await Job.find().sort({ postedAt: -1 });
+
   const urls = jobs
-    .map((j) => `<url><loc>https://freshersjobs.shop/jobs/${j._id}</loc></url>`)
+    .map(
+      (j) =>
+        `<url><loc>https://freshersjobs.shop/jobs/${j._id}</loc></url>`
+    )
     .join("");
+
   res.type("application/xml").send(
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`
   );
 });
 
-// Root
+// ROOT ROUTE
 app.get("/", (req, res) => {
-  res.send("✅ FreshersJobs Backend is running with Google OAuth");
+  res.send("FreshersJobs Backend Running with Google OAuth 🚀");
 });
 
-// Start Server
+// ================== Start Server ==================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`🚀 Server running on http://localhost:${PORT}`)
