@@ -36,8 +36,19 @@ app.use(
   })
 );
 
+
 app.use(express.json());
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "img-src": ["'self'", "data:", "https://lh3.googleusercontent.com"],
+      },
+    },
+  })
+);
+
 app.use(compression());
 app.use(cookieParser());
 app.use(passport.initialize());
