@@ -45,7 +45,7 @@ app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
 // ================ MongoDB Setup =================
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
+  .then(() => console.log("✅ MongoDB Connected.."))
   .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
 // ================ Mongoose Schemas =================
