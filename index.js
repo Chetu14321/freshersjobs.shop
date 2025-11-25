@@ -29,10 +29,14 @@ app.set("trust proxy", 1);   // 🔥 REQUIRED FOR COOKIES ON RENDER
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      process.env.FRONTEND_URL, // e.g. https://freshersjobs.shop
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
