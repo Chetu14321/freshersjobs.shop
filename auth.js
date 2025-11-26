@@ -7,6 +7,13 @@ require("dotenv").config();
 
 const router = express.Router();
 
+// Detect FRONTEND URL automatically
+const FRONTEND_URL =
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "production"
+    ? "https://freshersjobs.shop"
+    : "http://localhost:3000");
+
 // GOOGLE STRATEGY
 passport.use(
   new GoogleStrategy(
@@ -57,15 +64,16 @@ router.get(
       { expiresIn: "7d" }
     );
 
-    // SET COOKIE WITH SECURE SETTINGS FOR RENDER
+    // Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: true,      // required for https
-      sameSite: "none",  // allow sending cookie cross-domain
-      path: "/",         // allow cookie on all routes
+      secure: process.env.NODE_ENV === "production", // only https in production
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
     });
 
-    return res.redirect(process.env.FRONTEND_URL);
+    // Redirect to correct frontend
+    return res.redirect(`${FRONTEND_URL}/profile`);
   }
 );
 
@@ -73,8 +81,8 @@ router.get(
 router.get("/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     path: "/",
   });
   res.json({ message: "Logged out" });
