@@ -60,7 +60,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
 // ================== Prerender.io ==================
 if (!process.env.PRERENDER_TOKEN) {
-  console.warn("⚠️ Prerender token not set in .env");
+  console.warn("⚠️ Prerender token is  not set in .env");
 }
 app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
 
