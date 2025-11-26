@@ -3,11 +3,15 @@ const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const jwt = require("jsonwebtoken");
 const User = require("./Model/User");
+const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 const router = express.Router();
 
-// Detect FRONTEND URL automatically
+// Middleware
+router.use(cookieParser());
+
+// Auto-detect frontend URL
 const FRONTEND_URL =
   process.env.FRONTEND_URL ||
   (process.env.NODE_ENV === "production"
@@ -72,10 +76,28 @@ router.get(
       path: "/",
     });
 
-    // Redirect to correct frontend
     return res.redirect(`${FRONTEND_URL}/profile`);
   }
 );
+
+// 🟢 GET LOGGED-IN USER
+router.get("/me", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+
+    if (!token) return res.status(401).json({ message: "Not logged in" });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.id).select("-googleId");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({ user });
+  } catch (err) {
+    res.status(401).json({ message: "Invalid token" });
+  }
+});
 
 // LOGOUT
 router.get("/logout", (req, res) => {
