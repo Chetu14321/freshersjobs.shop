@@ -27,18 +27,30 @@ const jwt = require("jsonwebtoken");
 const app = express();
 app.set("trust proxy", 1);   // 🔥 REQUIRED FOR COOKIES ON RENDER
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://freshersjobs.shop",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      process.env.FRONTEND_URL, // e.g. https://freshersjobs.shop
-    ],
+    origin: function (origin, callback) {
+      // allow requests with no origin (for mobile apps / curl)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("CORS Not Allowed"), false);
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 
 
 app.use(express.json());
