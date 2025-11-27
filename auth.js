@@ -12,15 +12,10 @@ router.use(cookieParser());
 /* ---------------- ENV ---------------- */
 const isProd = process.env.NODE_ENV === "production";
 
-// FRONTEND DOMAIN
+// FRONTEND URL
 const FRONTEND_URL = isProd
-  ? process.env.FRONTEND_URL              // e.g. https://freshersjobs.shop
+  ? process.env.FRONTEND_URL // https://freshersjobs.shop
   : "http://localhost:3000";
-
-// COOKIE DOMAIN FOR PROD (required for cross-domain cookies)
-const COOKIE_DOMAIN = isProd
-  ? process.env.COOKIE_DOMAIN || ".yourdomain.com"  // set in .env
-  : undefined;
 
 /* ---------------- GOOGLE STRATEGY ---------------- */
 passport.use(
@@ -28,7 +23,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL, // MUST be full domain in prod
+      callbackURL: process.env.GOOGLE_CALLBACK_URL, 
     },
     async (accessToken, refreshToken, profile, done) => {
       let user = await User.findOne({ googleId: profile.id });
@@ -72,10 +67,13 @@ router.get(
     /* ---------------- COOKIE SETTINGS ---------------- */
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,              // must be true on production
+      secure: isProd,            // TRUE in production (HTTPS)
       sameSite: isProd ? "none" : "lax",
-      domain: COOKIE_DOMAIN,       // ⚠️ only in production
       path: "/",
+
+      // ❗ important: NO DOMAIN in production
+      // because backend = onrender.com and frontend = freshersjobs.shop
+      // browser rejects cross-domain cookies if domain is set manually
     });
 
     return res.redirect(`${FRONTEND_URL}/profile`);
@@ -103,8 +101,8 @@ router.get("/logout", (req, res) => {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
-    domain: COOKIE_DOMAIN,
     path: "/",
+    // ❗ NO domain here also
   });
 
   res.json({ message: "Logged out" });
