@@ -30,9 +30,12 @@ app.set("trust proxy", 1);   // 🔥 REQUIRED FOR COOKIES ON RENDER
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  "https://freshersjobs.shop",               // your Cloudflare + custom domain
-  "https://freshers-nextjs.vercel.app"       // Vercel default preview/production URL
+  "https://freshersjobs.shop",
+  "https://www.freshersjobs.shop",
+  "https://freshers-nextjs.vercel.app",
+  "https://freshersjobs-shop.onrender.com"  // ← REQUIRED
 ];
+
 
 
 app.use(
