@@ -64,7 +64,20 @@ app.use(
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
+        "default-src": ["'self'"],
         "img-src": ["'self'", "data:", "https://lh3.googleusercontent.com"],
+        "script-src": [
+          "'self'",
+          "'unsafe-inline'",
+          "https://accounts.google.com",
+          "https://apis.google.com",
+        ],
+        "frame-src": ["'self'", "https://accounts.google.com"],
+        "connect-src": [
+          "'self'",
+          "https://freshersjobs-shop.onrender.com",
+          "https://accounts.google.com",
+        ],
       },
     },
   })

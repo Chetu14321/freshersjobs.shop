@@ -14,7 +14,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 // FRONTEND URL
 const FRONTEND_URL = isProd
-  ? process.env.FRONTEND_URL // https://freshersjobs.shop
+  ? process.env.FRONTEND_URL   // https://freshersjobs.shop
   : "http://localhost:3000";
 
 /* ---------------- GOOGLE STRATEGY ---------------- */
@@ -23,21 +23,25 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL, 
+      callbackURL: process.env.GOOGLE_CALLBACK_URL, // https://freshersjobs-shop.onrender.com/auth/google/callback
     },
     async (accessToken, refreshToken, profile, done) => {
-      let user = await User.findOne({ googleId: profile.id });
+      try {
+        let user = await User.findOne({ googleId: profile.id });
 
-      if (!user) {
-        user = await User.create({
-          googleId: profile.id,
-          name: profile.displayName,
-          email: profile.emails[0].value,
-          picture: profile.photos[0].value,
-        });
+        if (!user) {
+          user = await User.create({
+            googleId: profile.id,
+            name: profile.displayName,
+            email: profile.emails[0].value,
+            picture: profile.photos[0].value,
+          });
+        }
+
+        return done(null, user);
+      } catch (err) {
+        return done(err, null);
       }
-
-      return done(null, user);
     }
   )
 );
@@ -64,16 +68,12 @@ router.get(
       { expiresIn: "7d" }
     );
 
-    /* ---------------- COOKIE SETTINGS ---------------- */
+    /* ---------------- COOKIE SETTINGS (Render-safe) ---------------- */
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,            // TRUE in production (HTTPS)
-      sameSite: isProd ? "none" : "lax",
+      secure: true,         // ALWAYS true on Render
+      sameSite: "none",     // REQUIRED for cross-domain cookies
       path: "/",
-
-      // ❗ important: NO DOMAIN in production
-      // because backend = onrender.com and frontend = freshersjobs.shop
-      // browser rejects cross-domain cookies if domain is set manually
     });
 
     return res.redirect(`${FRONTEND_URL}/profile`);
@@ -99,10 +99,9 @@ router.get("/me", async (req, res) => {
 router.get("/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
-    // ❗ NO domain here also
   });
 
   res.json({ message: "Logged out" });
