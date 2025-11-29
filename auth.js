@@ -12,9 +12,8 @@ router.use(cookieParser());
 /* ---------------- ENV ---------------- */
 const isProd = process.env.NODE_ENV === "production";
 
-// FRONTEND URL
 const FRONTEND_URL = isProd
-  ? process.env.FRONTEND_URL   // https://freshersjobs.shop
+  ? process.env.FRONTEND_URL       // https://freshersjobs.shop
   : "http://localhost:3000";
 
 /* ---------------- GOOGLE STRATEGY ---------------- */
@@ -23,7 +22,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL, // https://freshersjobs-shop.onrender.com/auth/google/callback
+      callbackURL: process.env.GOOGLE_CALLBACK_URL,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
@@ -52,7 +51,7 @@ router.get(
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
-/* ---------------- CALLBACK ---------------- */
+/* ---------------- CALLBACK (FINAL FIX APPLIED) ---------------- */
 router.get(
   "/google/callback",
   passport.authenticate("google", { session: false }),
@@ -68,15 +67,23 @@ router.get(
       { expiresIn: "7d" }
     );
 
-    /* ---------------- COOKIE SETTINGS (Render-safe) ---------------- */
+    // Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: true,         // ALWAYS true on Render
-      sameSite: "none",     // REQUIRED for cross-domain cookies
+      secure: true,
+      sameSite: "none",
       path: "/",
     });
 
-    return res.redirect(`${FRONTEND_URL}/profile`);
+    // Manual HTML redirect (fixes cookie loss!)
+    return res.send(`
+      <html>
+        <head>
+          <meta http-equiv="refresh" content="0; URL='${FRONTEND_URL}/profile'" />
+        </head>
+        <body>Redirecting...</body>
+      </html>
+    `);
   }
 );
 
