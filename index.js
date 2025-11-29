@@ -25,54 +25,49 @@ const jwt = require("jsonwebtoken");
 
 // ================== Express App ==================
 const app = express();
-app.set("trust proxy", 1);   // 🔥 REQUIRED FOR COOKIES ON RENDER
+app.set("trust proxy", 1); // 🔥 REQUIRED for cookies on Render
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "https://freshersjobs.shop",
-  "https://www.freshersjobs.shop",
-  "https://freshers-nextjs.vercel.app",
-  "https://freshersjobs-shop.onrender.com"  // ← REQUIRED
-];
-
-
-
+// ================== CORS (FULLY FIXED) ==================
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow requests with no origin (for mobile apps / curl)
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error("CORS Not Allowed"), false);
-      }
-    },
+    origin: [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://freshersjobs.shop",
+      "https://www.freshersjobs.shop",
+      "https://freshers-nextjs.vercel.app",
+      "https://freshersjobs-shop.onrender.com",
+    ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-
-
+// ================== JSON Parser ==================
 app.use(express.json());
+
+// ================== Helmet (OAuth + Google CSP FIXED) ==================
 app.use(
   helmet({
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
         "default-src": ["'self'"],
+
+        // Allow Google profile pictures
         "img-src": ["'self'", "data:", "https://lh3.googleusercontent.com"],
+
+        // Allow Google OAuth scripts
         "script-src": [
           "'self'",
           "'unsafe-inline'",
           "https://accounts.google.com",
           "https://apis.google.com",
         ],
+
+        // Allow OAuth iframe redirects
         "frame-src": ["'self'", "https://accounts.google.com"],
+
+        // Allow Google + Backend fetch requests
         "connect-src": [
           "'self'",
           "https://freshersjobs-shop.onrender.com",
@@ -90,7 +85,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
 // ================== Prerender.io ==================
 if (!process.env.PRERENDER_TOKEN) {
-  console.warn("⚠️ Prerender token is  not set in .env");
+  console.warn("⚠️ Prerender token is not set in .env");
 }
 app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
 
@@ -119,22 +114,19 @@ const jobSchema = new mongoose.Schema({
   salary: String,
   lastDate: Date,
 });
-
 const Job = mongoose.model("Job", jobSchema);
 
-// ================ Subscribers ================
 const subscriberSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   subscribedAt: { type: Date, default: Date.now },
 });
-
 const Subscriber = mongoose.model("Subscriber", subscriberSchema);
 
 // ================== Gemini AI ==================
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
-// ================== Google OAuth ==================
+// ================== Google OAuth Routes ==================
 app.use("/auth", authRoutes);
 
 // ================== API ROUTES ==================
@@ -142,7 +134,7 @@ app.use("/auth", authRoutes);
 // Health check
 app.get("/api/ping", (req, res) => res.send("Server is running"));
 
-// Return logged-in user from cookie
+// Get logged-in user
 app.get("/api/me", (req, res) => {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ message: "Not logged in" });
@@ -233,7 +225,7 @@ app.get("/sitemap.xml", async (req, res) => {
   );
 });
 
-// ROOT ROUTE
+// ================== Root Route ==================
 app.get("/", (req, res) => {
   res.send("FreshersJobs Backend Running with Google OAuth 🚀");
 });
