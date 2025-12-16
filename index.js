@@ -28,19 +28,26 @@ const app = express();
 app.set("trust proxy", 1); // 🔥 REQUIRED for cookies on Render
 
 // ================== CORS (FULLY FIXED) ==================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://freshersjobs.shop",
+  "https://www.freshersjobs.shop",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "https://freshersjobs.shop",
-      "https://www.freshersjobs.shop",
-      "https://freshers-nextjs.vercel.app",
-      "https://freshersjobs-shop.onrender.com",
-    ],
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS not allowed"));
+      }
+    },
     credentials: true,
   })
 );
+
 
 // ================== JSON Parser ==================
 app.use(express.json());
