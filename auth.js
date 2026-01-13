@@ -68,12 +68,14 @@ router.get(
     );
 
     // Set cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      path: "/",
-    });
+   res.cookie("token", token, {
+  httpOnly: true,
+  secure: isProd,               // 🔥 only true in production
+  sameSite: isProd ? "none" : "lax",
+  path: "/",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+
 
     // Manual HTML redirect (fixes cookie loss!)
     return res.send(`

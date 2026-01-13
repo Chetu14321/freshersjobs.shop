@@ -7,19 +7,13 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { IncomingForm } = require("formidable");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const path = require("path");
-
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
-
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
-
-const prerender = require("prerender-node");
 const jwt = require("jsonwebtoken");
-
 const NodeCache = require("node-cache");
 
 dotenv.config();
@@ -86,11 +80,6 @@ app.use(
   })
 );
 
-// ================== Prerender ==================
-if (process.env.PRERENDER_TOKEN) {
-  app.use(prerender.set("prerenderToken", process.env.PRERENDER_TOKEN));
-}
-
 // ================== MongoDB ==================
 mongoose
   .connect(process.env.MONGO_URI)
@@ -117,13 +106,12 @@ const jobSchema = new mongoose.Schema({
   lastDate: Date,
 });
 
-// 🔥 Indexes for speed
 jobSchema.index({ postedAt: -1 });
 jobSchema.index({ type: 1 });
 
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== Gemini AI ==================
+// ================== AI ==================
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
 
@@ -133,20 +121,7 @@ app.use("/auth", authRoutes);
 // ================== Health ==================
 app.get("/api/ping", (_, res) => res.send("Server is running"));
 
-// ================== Logged User ==================
-app.get("/api/me", (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ message: "Not logged in" });
-
-  try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    res.json({ user });
-  } catch {
-    res.status(401).json({ message: "Invalid token" });
-  }
-});
-
-// ================== GET JOBS (PAGINATION + CACHE) ==================
+// ================== GET JOBS ==================
 app.get("/api/jobs", async (req, res) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -179,16 +154,9 @@ app.get("/api/jobs", async (req, res) => {
     };
 
     jobCache.set(cacheKey, response);
-
-    res.set(
-      "Cache-Control",
-      "public, max-age=60, s-maxage=300, stale-while-revalidate=300"
-    );
-
     res.json(response);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Server error" });
+  } catch {
+    res.status(500).json({ success: false });
   }
 });
 
@@ -196,71 +164,11 @@ app.get("/api/jobs", async (req, res) => {
 app.get("/api/jobs/:id", async (req, res) => {
   try {
     const job = await Job.findById(req.params.id).lean();
-    if (!job)
-      return res.status(404).json({ success: false, message: "Not found" });
-
-    res.set("Cache-Control", "public, max-age=300");
+    if (!job) return res.status(404).json({ success: false });
     res.json({ success: true, job });
   } catch {
-    res.status(400).json({ success: false, message: "Invalid ID" });
+    res.status(400).json({ success: false });
   }
-});
-
-// ================== Resume ATS ==================
-app.post("/api/resume-checker", (req, res) => {
-  const form = new IncomingForm();
-
-  form.parse(req, async (_, fields, files) => {
-    try {
-      const buffer = fs.readFileSync(files.resume.filepath);
-      const pdfData = await pdfParse(buffer);
-
-      const prompt = `
-Analyze resume for ATS:
-Resume: ${pdfData.text}
-Job Description: ${fields.jobDesc}
-`;
-
-      const result = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
-
-      res.json({ result: result.response.text() });
-    } catch {
-      res.status(500).json({ error: "Resume analysis failed" });
-    }
-  });
-});
-
-// ================== AI Chat ==================
-app.post("/api/chat", async (req, res) => {
-  try {
-    const result = await aiModel.generateContent({
-      contents: [{ role: "user", parts: [{ text: req.body.message }] }],
-    });
-    res.json({ reply: result.response.text() });
-  } catch {
-    res.status(500).json({ error: "AI failed" });
-  }
-});
-
-// ================== Robots ==================
-app.get("/robots.txt", (_, res) => {
-  res.type("text/plain").send(
-    "User-agent: *\nAllow: /\nSitemap: https://freshersjobs.shop/sitemap.xml"
-  );
-});
-
-// ================== Sitemap ==================
-app.get("/sitemap.xml", async (_, res) => {
-  const jobs = await Job.find().select("_id").lean();
-  const urls = jobs
-    .map((j) => `<url><loc>https://freshersjobs.shop/jobs/${j._id}</loc></url>`)
-    .join("");
-
-  res.type("application/xml").send(
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`
-  );
 });
 
 // ================== Root ==================
