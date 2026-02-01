@@ -13,7 +13,6 @@ const rateLimit = require("express-rate-limit");
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
-const jwt = require("jsonwebtoken");
 const NodeCache = require("node-cache");
 
 dotenv.config();
@@ -97,6 +96,14 @@ const jobSchema = new mongoose.Schema({
   tags: [String],
   applyUrl: String,
   type: { type: String, enum: ["job", "internship"], default: "job" },
+
+  // ✅ SLUG FIELD
+  slug: {
+    type: String,
+    unique: true,
+    index: true,
+  },
+
   postedAt: { type: Date, default: Date.now },
   role: String,
   qualification: String,
@@ -106,14 +113,32 @@ const jobSchema = new mongoose.Schema({
   lastDate: Date,
 });
 
+// ================== Indexes ==================
 jobSchema.index({ postedAt: -1 });
 jobSchema.index({ type: 1 });
 
+// ================== Slug Generator ==================
+jobSchema.pre("save", function (next) {
+  if (!this.slug && this.title) {
+    this.slug =
+      this.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "") +
+      "-" +
+      Date.now();
+  }
+  next();
+});
+
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== AI ==================
+// ================== Gemini AI ==================
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const aiModel = genAI.getGenerativeModel({ model: "text-bison-001" });
+
+const aiModel = genAI.getGenerativeModel({
+  model: "models/gemini-1.0-pro",
+});
 
 // ================== Auth Routes ==================
 app.use("/auth", authRoutes);
@@ -160,10 +185,10 @@ app.get("/api/jobs", async (req, res) => {
   }
 });
 
-// ================== SINGLE JOB ==================
-app.get("/api/jobs/:id", async (req, res) => {
+// ================== SINGLE JOB (SLUG) ==================
+app.get("/api/jobs/:slug", async (req, res) => {
   try {
-    const job = await Job.findById(req.params.id).lean();
+    const job = await Job.findOne({ slug: req.params.slug }).lean();
     if (!job) return res.status(404).json({ success: false });
     res.json({ success: true, job });
   } catch {
@@ -171,10 +196,103 @@ app.get("/api/jobs/:id", async (req, res) => {
   }
 });
 
+// ================== Resume ATS Checker ==================
+app.post("/api/resume-checker", (req, res) => {
+  const form = new IncomingForm({ keepExtensions: true });
+
+  form.parse(req, async (err, fields, files) => {
+    try {
+      if (err) {
+        return res.status(400).json({ error: "Invalid form data" });
+      }
+
+      const resumeFile = Array.isArray(files.resume)
+        ? files.resume[0]
+        : files.resume;
+
+      const jobDesc = fields.jobDesc;
+
+      if (!resumeFile || !jobDesc || !resumeFile.filepath) {
+        return res.status(400).json({
+          error: "Resume and job description are required",
+        });
+      }
+
+      const buffer = fs.readFileSync(resumeFile.filepath);
+      const pdfData = await pdfParse(buffer);
+
+      const prompt = `
+You are an ATS resume analyzer.
+
+Return ONLY valid JSON:
+
+{
+  "ats_score": number,
+  "ats_friendliness": "Poor | Average | Good | Excellent",
+  "strengths": [string],
+  "weaknesses": [string],
+  "recommendations": [string]
+}
+
+Resume:
+${pdfData.text}
+
+Job Description:
+${jobDesc}
+`;
+
+      const result = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+
+      const text = result.response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+      if (!jsonMatch) {
+        return res.status(500).json({ error: "AI parsing failed" });
+      }
+
+      res.json(JSON.parse(jsonMatch[0]));
+    } catch (error) {
+      console.error("ATS Error:", error);
+      res.status(500).json({ error: "Resume analysis failed" });
+    }
+  });
+});
+app.get("/api/job-by-id/:id", async (req, res) => {
+  const job = await Job.findById(req.params.id).select("slug");
+  if (!job) return res.status(404).end();
+  res.redirect(301, `/jobs/${job.slug}`);
+});
+
 // ================== Root ==================
 app.get("/", (_, res) =>
   res.send("FreshersJobs Backend Running 🚀")
 );
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const jobs = await Job.find().select("slug updatedAt");
+
+    const urls = jobs
+      .map(
+        (job) => `
+  <url>
+    <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
+    <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
+  </url>`
+      )
+      .join("");
+
+    res.header("Content-Type", "application/xml");
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>`);
+  } catch (err) {
+    res.status(500).end();
+  }
+});
+
 
 // ================== Start ==================
 const PORT = process.env.PORT || 5000;
