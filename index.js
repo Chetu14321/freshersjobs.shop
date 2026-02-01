@@ -298,6 +298,11 @@ app.get("/api/admin/fix-slugs", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+app.get("/api/admin/clear-cache", (req, res) => {
+  jobCache.flushAll();
+  res.json({ success: true, message: "Cache cleared" });
+});
+
 
 app.get("/sitemap.xml", async (req, res) => {
   try {
