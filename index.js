@@ -269,6 +269,36 @@ app.get("/api/job-by-id/:id", async (req, res) => {
 app.get("/", (_, res) =>
   res.send("FreshersJobs Backend Running 🚀")
 );
+app.get("/api/admin/fix-slugs", async (req, res) => {
+  try {
+    const jobs = await Job.find({
+      $or: [{ slug: { $exists: false } }, { slug: "" }]
+    });
+
+    let count = 0;
+
+    for (const job of jobs) {
+      job.slug =
+        job.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "") +
+        "-" +
+        job._id.toString().slice(-6);
+
+      await job.save();
+      count++;
+    }
+
+    res.json({
+      success: true,
+      updated: count
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/sitemap.xml", async (req, res) => {
   try {
     const jobs = await Job.find().select("slug updatedAt");
