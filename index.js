@@ -13,7 +13,7 @@ const rateLimit = require("express-rate-limit");
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
-const Redis = require("ioredis");
+const NodeCache = require("node-cache");
 
 dotenv.config();
 
@@ -21,19 +21,8 @@ dotenv.config();
 const app = express();
 app.set("trust proxy", 1);
 
-// ================== Redis ==================
-const redis = new Redis(
-  `rediss://:${process.env.REDIS_PASSWORD}@${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`
-);
-
-
-redis.on("connect", () => {
-  console.log("✅ Redis connected");
-});
-
-redis.on("error", (err) => {
-  console.error("❌ Redis error:", err.message);
-});
+// ================== Cache ==================
+const jobCache = new NodeCache({ stdTTL: 60 });
 
 // ================== CORS ==================
 const allowedOrigins = [
@@ -108,7 +97,12 @@ const jobSchema = new mongoose.Schema({
   applyUrl: String,
   type: { type: String, enum: ["job", "internship"], default: "job" },
 
-  slug: { type: String, unique: true, index: true },
+  // ✅ SLUG FIELD
+  slug: {
+    type: String,
+    unique: true,
+    index: true,
+  },
 
   postedAt: { type: Date, default: Date.now },
   role: String,
@@ -119,9 +113,11 @@ const jobSchema = new mongoose.Schema({
   lastDate: Date,
 });
 
+// ================== Indexes ==================
 jobSchema.index({ postedAt: -1 });
 jobSchema.index({ type: 1 });
 
+// ================== Slug Generator ==================
 jobSchema.pre("save", function (next) {
   if (!this.slug && this.title) {
     this.slug =
@@ -137,15 +133,20 @@ jobSchema.pre("save", function (next) {
 
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== Auth ==================
+// ================== Gemini AI ==================
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+const aiModel = genAI.getGenerativeModel({
+  model: "models/gemini-1.0-pro",
+});
+
+// ================== Auth Routes ==================
 app.use("/auth", authRoutes);
 
 // ================== Health ==================
-app.get("/api/ping", (_, res) =>
-  res.status(200).send("Server is running")
-);
+app.get("/api/ping", (_, res) => res.send("Server is running"));
 
-// ================== GET JOBS (REDIS CACHED) ==================
+// ================== GET JOBS ==================
 app.get("/api/jobs", async (req, res) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -156,11 +157,8 @@ app.get("/api/jobs", async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
 
     const cacheKey = `jobs:${page}:${limit}:${req.query.type || "all"}`;
-
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      return res.status(200).json(JSON.parse(cached));
-    }
+    const cached = jobCache.get(cacheKey);
+    if (cached) return res.json(cached);
 
     const [jobs, total] = await Promise.all([
       Job.find(filter)
@@ -180,43 +178,21 @@ app.get("/api/jobs", async (req, res) => {
       jobs,
     };
 
-    await redis.setex(cacheKey, 60, JSON.stringify(response));
-    res.status(200).json(response);
-  } catch (err) {
-    console.error(err);
+    jobCache.set(cacheKey, response);
+    res.json(response);
+  } catch {
     res.status(500).json({ success: false });
   }
 });
 
-// ================== SINGLE JOB (NO CACHE, NO SOFT 404) ==================
+// ================== SINGLE JOB (SLUG) ==================
 app.get("/api/jobs/:slug", async (req, res) => {
   try {
     const job = await Job.findOne({ slug: req.params.slug }).lean();
-
-    if (!job) {
-      return res.status(404).json({
-        status: "not_found",
-        message: "Job not found",
-      });
-    }
-
-    if (job.lastDate && new Date(job.lastDate) < new Date()) {
-      return res.status(410).json({
-        status: "expired",
-        message: "This job has expired",
-      });
-    }
-
-    res.status(200).json({
-      status: "success",
-      job,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      status: "error",
-      message: "Server error",
-    });
+    if (!job) return res.status(404).json({ success: false });
+    res.json({ success: true, job });
+  } catch {
+    res.status(400).json({ success: false });
   }
 });
 
@@ -226,13 +202,17 @@ app.post("/api/resume-checker", (req, res) => {
 
   form.parse(req, async (err, fields, files) => {
     try {
-      if (err) return res.status(400).json({ error: "Invalid form data" });
+      if (err) {
+        return res.status(400).json({ error: "Invalid form data" });
+      }
 
       const resumeFile = Array.isArray(files.resume)
         ? files.resume[0]
         : files.resume;
 
-      if (!resumeFile || !fields.jobDesc) {
+      const jobDesc = fields.jobDesc;
+
+      if (!resumeFile || !jobDesc || !resumeFile.filepath) {
         return res.status(400).json({
           error: "Resume and job description are required",
         });
@@ -241,13 +221,11 @@ app.post("/api/resume-checker", (req, res) => {
       const buffer = fs.readFileSync(resumeFile.filepath);
       const pdfData = await pdfParse(buffer);
 
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: "models/gemini-1.0-pro",
-      });
-
       const prompt = `
+You are an ATS resume analyzer.
+
 Return ONLY valid JSON:
+
 {
   "ats_score": number,
   "ats_friendliness": "Poor | Average | Good | Excellent",
@@ -255,13 +233,18 @@ Return ONLY valid JSON:
   "weaknesses": [string],
   "recommendations": [string]
 }
+
 Resume:
 ${pdfData.text}
+
 Job Description:
-${fields.jobDesc}
+${jobDesc}
 `;
 
-      const result = await model.generateContent(prompt);
+      const result = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
@@ -269,31 +252,69 @@ ${fields.jobDesc}
         return res.status(500).json({ error: "AI parsing failed" });
       }
 
-      res.status(200).json(JSON.parse(jsonMatch[0]));
+      res.json(JSON.parse(jsonMatch[0]));
     } catch (error) {
-      console.error(error);
+      console.error("ATS Error:", error);
       res.status(500).json({ error: "Resume analysis failed" });
     }
   });
 });
+app.get("/api/job-by-id/:id", async (req, res) => {
+  const job = await Job.findById(req.params.id).select("slug");
+  if (!job) return res.status(404).end();
+  res.redirect(301, `/jobs/${job.slug}`);
+});
 
-// ================== Sitemap (ACTIVE JOBS ONLY) ==================
-app.get("/sitemap.xml", async (req, res) => {
+// ================== Root ==================
+app.get("/", (_, res) =>
+  res.send("FreshersJobs Backend Running 🚀")
+);
+app.get("/api/admin/fix-slugs", async (req, res) => {
   try {
     const jobs = await Job.find({
-      $or: [
-        { lastDate: { $exists: false } },
-        { lastDate: { $gte: new Date() } },
-      ],
-    }).select("slug updatedAt");
+      $or: [{ slug: { $exists: false } }, { slug: "" }]
+    });
+
+    let count = 0;
+
+    for (const job of jobs) {
+      job.slug =
+        job.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "") +
+        "-" +
+        job._id.toString().slice(-6);
+
+      await job.save();
+      count++;
+    }
+
+    res.json({
+      success: true,
+      updated: count
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/admin/clear-cache", (req, res) => {
+  jobCache.flushAll();
+  res.json({ success: true, message: "Cache cleared" });
+});
+
+
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const jobs = await Job.find().select("slug updatedAt");
 
     const urls = jobs
       .map(
         (job) => `
-<url>
-  <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
-  <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
-</url>`
+  <url>
+    <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
+    <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
+  </url>`
       )
       .join("");
 
@@ -302,21 +323,11 @@ app.get("/sitemap.xml", async (req, res) => {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls}
 </urlset>`);
-  } catch {
+  } catch (err) {
     res.status(500).end();
   }
 });
 
-// ================== Admin ==================
-app.get("/api/admin/clear-cache", async (_, res) => {
-  await redis.flushall();
-  res.json({ success: true, message: "Redis cache cleared" });
-});
-
-// ================== Root ==================
-app.get("/", (_, res) =>
-  res.status(200).send("FreshersJobs Backend Running 🚀")
-);
 
 // ================== Start ==================
 const PORT = process.env.PORT || 5000;
