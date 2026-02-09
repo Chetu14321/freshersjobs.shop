@@ -13,7 +13,7 @@ const rateLimit = require("express-rate-limit");
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
-const NodeCache = require("node-cache");
+const Redis = require("ioredis");
 
 dotenv.config();
 
@@ -21,8 +21,19 @@ dotenv.config();
 const app = express();
 app.set("trust proxy", 1);
 
-// ================== Cache ==================
-const jobCache = new NodeCache({ stdTTL: 60 });
+// ================== Redis ==================
+const redis = new Redis(
+  `rediss://:${process.env.REDIS_PASSWORD}@${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`
+);
+
+
+redis.on("connect", () => {
+  console.log("✅ Redis connected");
+});
+
+redis.on("error", (err) => {
+  console.error("❌ Redis error:", err.message);
+});
 
 // ================== CORS ==================
 const allowedOrigins = [
@@ -108,11 +119,9 @@ const jobSchema = new mongoose.Schema({
   lastDate: Date,
 });
 
-// ================== Indexes ==================
 jobSchema.index({ postedAt: -1 });
 jobSchema.index({ type: 1 });
 
-// ================== Slug Generator ==================
 jobSchema.pre("save", function (next) {
   if (!this.slug && this.title) {
     this.slug =
@@ -136,7 +145,7 @@ app.get("/api/ping", (_, res) =>
   res.status(200).send("Server is running")
 );
 
-// ================== GET JOBS ==================
+// ================== GET JOBS (REDIS CACHED) ==================
 app.get("/api/jobs", async (req, res) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -147,8 +156,11 @@ app.get("/api/jobs", async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
 
     const cacheKey = `jobs:${page}:${limit}:${req.query.type || "all"}`;
-    const cached = jobCache.get(cacheKey);
-    if (cached) return res.status(200).json(cached);
+
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.status(200).json(JSON.parse(cached));
+    }
 
     const [jobs, total] = await Promise.all([
       Job.find(filter)
@@ -168,7 +180,7 @@ app.get("/api/jobs", async (req, res) => {
       jobs,
     };
 
-    jobCache.set(cacheKey, response);
+    await redis.setex(cacheKey, 60, JSON.stringify(response));
     res.status(200).json(response);
   } catch (err) {
     console.error(err);
@@ -176,12 +188,11 @@ app.get("/api/jobs", async (req, res) => {
   }
 });
 
-// ================== SINGLE JOB (FIXED) ==================
+// ================== SINGLE JOB (NO CACHE, NO SOFT 404) ==================
 app.get("/api/jobs/:slug", async (req, res) => {
   try {
     const job = await Job.findOne({ slug: req.params.slug }).lean();
 
-    // ❌ Job not found
     if (!job) {
       return res.status(404).json({
         status: "not_found",
@@ -189,7 +200,6 @@ app.get("/api/jobs/:slug", async (req, res) => {
       });
     }
 
-    // ⏳ Job expired
     if (job.lastDate && new Date(job.lastDate) < new Date()) {
       return res.status(410).json({
         status: "expired",
@@ -197,14 +207,13 @@ app.get("/api/jobs/:slug", async (req, res) => {
       });
     }
 
-    // ✅ Valid job
-    return res.status(200).json({
+    res.status(200).json({
       status: "success",
       job,
     });
   } catch (err) {
-    console.error("Job fetch error:", err);
-    return res.status(500).json({
+    console.error(err);
+    res.status(500).json({
       status: "error",
       message: "Server error",
     });
@@ -268,14 +277,7 @@ ${fields.jobDesc}
   });
 });
 
-// ================== Job ID Redirect ==================
-app.get("/api/job-by-id/:id", async (req, res) => {
-  const job = await Job.findById(req.params.id).select("slug");
-  if (!job) return res.status(404).end();
-  res.redirect(301, `/jobs/${job.slug}`);
-});
-
-// ================== Sitemap (FIXED) ==================
+// ================== Sitemap (ACTIVE JOBS ONLY) ==================
 app.get("/sitemap.xml", async (req, res) => {
   try {
     const jobs = await Job.find({
@@ -300,15 +302,15 @@ app.get("/sitemap.xml", async (req, res) => {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls}
 </urlset>`);
-  } catch (err) {
+  } catch {
     res.status(500).end();
   }
 });
 
 // ================== Admin ==================
-app.get("/api/admin/clear-cache", (_, res) => {
-  jobCache.flushAll();
-  res.json({ success: true, message: "Cache cleared" });
+app.get("/api/admin/clear-cache", async (_, res) => {
+  await redis.flushall();
+  res.json({ success: true, message: "Redis cache cleared" });
 });
 
 // ================== Root ==================
