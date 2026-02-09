@@ -97,12 +97,7 @@ const jobSchema = new mongoose.Schema({
   applyUrl: String,
   type: { type: String, enum: ["job", "internship"], default: "job" },
 
-  // ✅ SLUG FIELD
-  slug: {
-    type: String,
-    unique: true,
-    index: true,
-  },
+  slug: { type: String, unique: true, index: true },
 
   postedAt: { type: Date, default: Date.now },
   role: String,
@@ -133,18 +128,13 @@ jobSchema.pre("save", function (next) {
 
 const Job = mongoose.model("Job", jobSchema);
 
-// ================== Gemini AI ==================
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-const aiModel = genAI.getGenerativeModel({
-  model: "models/gemini-1.0-pro",
-});
-
-// ================== Auth Routes ==================
+// ================== Auth ==================
 app.use("/auth", authRoutes);
 
 // ================== Health ==================
-app.get("/api/ping", (_, res) => res.send("Server is running"));
+app.get("/api/ping", (_, res) =>
+  res.status(200).send("Server is running")
+);
 
 // ================== GET JOBS ==================
 app.get("/api/jobs", async (req, res) => {
@@ -158,7 +148,7 @@ app.get("/api/jobs", async (req, res) => {
 
     const cacheKey = `jobs:${page}:${limit}:${req.query.type || "all"}`;
     const cached = jobCache.get(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached) return res.status(200).json(cached);
 
     const [jobs, total] = await Promise.all([
       Job.find(filter)
@@ -179,20 +169,45 @@ app.get("/api/jobs", async (req, res) => {
     };
 
     jobCache.set(cacheKey, response);
-    res.json(response);
-  } catch {
+    res.status(200).json(response);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ success: false });
   }
 });
 
-// ================== SINGLE JOB (SLUG) ==================
+// ================== SINGLE JOB (FIXED) ==================
 app.get("/api/jobs/:slug", async (req, res) => {
   try {
     const job = await Job.findOne({ slug: req.params.slug }).lean();
-    if (!job) return res.status(404).json({ success: false });
-    res.json({ success: true, job });
-  } catch {
-    res.status(400).json({ success: false });
+
+    // ❌ Job not found
+    if (!job) {
+      return res.status(404).json({
+        status: "not_found",
+        message: "Job not found",
+      });
+    }
+
+    // ⏳ Job expired
+    if (job.lastDate && new Date(job.lastDate) < new Date()) {
+      return res.status(410).json({
+        status: "expired",
+        message: "This job has expired",
+      });
+    }
+
+    // ✅ Valid job
+    return res.status(200).json({
+      status: "success",
+      job,
+    });
+  } catch (err) {
+    console.error("Job fetch error:", err);
+    return res.status(500).json({
+      status: "error",
+      message: "Server error",
+    });
   }
 });
 
@@ -202,17 +217,13 @@ app.post("/api/resume-checker", (req, res) => {
 
   form.parse(req, async (err, fields, files) => {
     try {
-      if (err) {
-        return res.status(400).json({ error: "Invalid form data" });
-      }
+      if (err) return res.status(400).json({ error: "Invalid form data" });
 
       const resumeFile = Array.isArray(files.resume)
         ? files.resume[0]
         : files.resume;
 
-      const jobDesc = fields.jobDesc;
-
-      if (!resumeFile || !jobDesc || !resumeFile.filepath) {
+      if (!resumeFile || !fields.jobDesc) {
         return res.status(400).json({
           error: "Resume and job description are required",
         });
@@ -221,11 +232,13 @@ app.post("/api/resume-checker", (req, res) => {
       const buffer = fs.readFileSync(resumeFile.filepath);
       const pdfData = await pdfParse(buffer);
 
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({
+        model: "models/gemini-1.0-pro",
+      });
+
       const prompt = `
-You are an ATS resume analyzer.
-
 Return ONLY valid JSON:
-
 {
   "ats_score": number,
   "ats_friendliness": "Poor | Average | Good | Excellent",
@@ -233,18 +246,13 @@ Return ONLY valid JSON:
   "weaknesses": [string],
   "recommendations": [string]
 }
-
 Resume:
 ${pdfData.text}
-
 Job Description:
-${jobDesc}
+${fields.jobDesc}
 `;
 
-      const result = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
-
+      const result = await model.generateContent(prompt);
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
@@ -252,69 +260,38 @@ ${jobDesc}
         return res.status(500).json({ error: "AI parsing failed" });
       }
 
-      res.json(JSON.parse(jsonMatch[0]));
+      res.status(200).json(JSON.parse(jsonMatch[0]));
     } catch (error) {
-      console.error("ATS Error:", error);
+      console.error(error);
       res.status(500).json({ error: "Resume analysis failed" });
     }
   });
 });
+
+// ================== Job ID Redirect ==================
 app.get("/api/job-by-id/:id", async (req, res) => {
   const job = await Job.findById(req.params.id).select("slug");
   if (!job) return res.status(404).end();
   res.redirect(301, `/jobs/${job.slug}`);
 });
 
-// ================== Root ==================
-app.get("/", (_, res) =>
-  res.send("FreshersJobs Backend Running 🚀")
-);
-app.get("/api/admin/fix-slugs", async (req, res) => {
-  try {
-    const jobs = await Job.find({
-      $or: [{ slug: { $exists: false } }, { slug: "" }]
-    });
-
-    let count = 0;
-
-    for (const job of jobs) {
-      job.slug =
-        job.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/(^-|-$)/g, "") +
-        "-" +
-        job._id.toString().slice(-6);
-
-      await job.save();
-      count++;
-    }
-
-    res.json({
-      success: true,
-      updated: count
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/admin/clear-cache", (req, res) => {
-  jobCache.flushAll();
-  res.json({ success: true, message: "Cache cleared" });
-});
-
-
+// ================== Sitemap (FIXED) ==================
 app.get("/sitemap.xml", async (req, res) => {
   try {
-    const jobs = await Job.find().select("slug updatedAt");
+    const jobs = await Job.find({
+      $or: [
+        { lastDate: { $exists: false } },
+        { lastDate: { $gte: new Date() } },
+      ],
+    }).select("slug updatedAt");
 
     const urls = jobs
       .map(
         (job) => `
-  <url>
-    <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
-    <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
-  </url>`
+<url>
+  <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
+  <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
+</url>`
       )
       .join("");
 
@@ -328,6 +305,16 @@ ${urls}
   }
 });
 
+// ================== Admin ==================
+app.get("/api/admin/clear-cache", (_, res) => {
+  jobCache.flushAll();
+  res.json({ success: true, message: "Cache cleared" });
+});
+
+// ================== Root ==================
+app.get("/", (_, res) =>
+  res.status(200).send("FreshersJobs Backend Running 🚀")
+);
 
 // ================== Start ==================
 const PORT = process.env.PORT || 5000;
