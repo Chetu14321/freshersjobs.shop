@@ -186,15 +186,33 @@ app.get("/api/jobs", async (req, res) => {
 });
 
 // ================== SINGLE JOB (SLUG) ==================
+// ================== SINGLE JOB (SEO SAFE) ==================
 app.get("/api/jobs/:slug", async (req, res) => {
   try {
-    const job = await Job.findOne({ slug: req.params.slug }).lean();
-    if (!job) return res.status(404).json({ success: false });
+    const { slug } = req.params;
+    let job = null;
+
+    // ✅ 1) Always try SLUG first (for indexing)
+    job = await Job.findOne({ slug }).lean();
+
+    // ✅ 2) If someone opens ID URL, redirect to slug (BEST SEO)
+    if (!job && /^[0-9a-fA-F]{24}$/.test(slug)) {
+      const jobById = await Job.findById(slug).select("slug").lean();
+      if (jobById?.slug) {
+        return res.redirect(301, `/jobs/${jobById.slug}`);
+      }
+    }
+
+    if (!job) {
+      return res.status(404).json({ success: false });
+    }
+
     res.json({ success: true, job });
-  } catch {
+  } catch (err) {
     res.status(400).json({ success: false });
   }
 });
+
 
 // ================== Resume ATS Checker ==================
 app.post("/api/resume-checker", (req, res) => {
