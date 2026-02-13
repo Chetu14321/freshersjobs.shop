@@ -28,6 +28,7 @@ const jobCache = new NodeCache({ stdTTL: 60 });
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://127.0.0.1:5050",
   "https://freshersjobs.shop",
   "https://www.freshersjobs.shop",
 ];
