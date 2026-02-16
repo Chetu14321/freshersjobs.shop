@@ -1,3 +1,4 @@
+
 // ================== Imports ==================
 const express = require("express");
 const mongoose = require("mongoose");
@@ -13,16 +14,13 @@ const rateLimit = require("express-rate-limit");
 const passport = require("passport");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./auth");
-const NodeCache = require("node-cache");
+const { redisClient } = require("./config/redis");
 
 dotenv.config();
 
 // ================== App ==================
 const app = express();
 app.set("trust proxy", 1);
-
-// ================== Cache ==================
-const jobCache = new NodeCache({ stdTTL: 60 });
 
 // ================== CORS ==================
 const allowedOrigins = [
@@ -97,14 +95,7 @@ const jobSchema = new mongoose.Schema({
   tags: [String],
   applyUrl: String,
   type: { type: String, enum: ["job", "internship"], default: "job" },
-
-  // ✅ SLUG FIELD
-  slug: {
-    type: String,
-    unique: true,
-    index: true,
-  },
-
+  slug: { type: String, unique: true, index: true },
   postedAt: { type: Date, default: Date.now },
   role: String,
   qualification: String,
@@ -114,11 +105,9 @@ const jobSchema = new mongoose.Schema({
   lastDate: Date,
 });
 
-// ================== Indexes ==================
 jobSchema.index({ postedAt: -1 });
 jobSchema.index({ type: 1 });
 
-// ================== Slug Generator ==================
 jobSchema.pre("save", function (next) {
   if (!this.slug && this.title) {
     this.slug =
@@ -147,7 +136,7 @@ app.use("/auth", authRoutes);
 // ================== Health ==================
 app.get("/api/ping", (_, res) => res.send("Server is running"));
 
-// ================== GET JOBS ==================
+// ================== GET JOBS (REDIS CACHE) ==================
 app.get("/api/jobs", async (req, res) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -158,15 +147,15 @@ app.get("/api/jobs", async (req, res) => {
     if (req.query.type) filter.type = req.query.type;
 
     const cacheKey = `jobs:${page}:${limit}:${req.query.type || "all"}`;
-    const cached = jobCache.get(cacheKey);
-    if (cached) return res.json(cached);
+
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log("⚡ Redis Cache HIT:", cacheKey);
+      return res.json(JSON.parse(cached));
+    }
 
     const [jobs, total] = await Promise.all([
-      Job.find(filter)
-        .sort({ postedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Job.find(filter).sort({ postedAt: -1 }).skip(skip).limit(limit).lean(),
       Job.countDocuments(filter),
     ]);
 
@@ -179,24 +168,30 @@ app.get("/api/jobs", async (req, res) => {
       jobs,
     };
 
-    jobCache.set(cacheKey, response);
+    await redisClient.setEx(cacheKey, 600, JSON.stringify(response));
+    console.log("💾 Redis Cache SET:", cacheKey);
+
+    res.set("Cache-Control", "public, max-age=300");
     res.json(response);
   } catch {
     res.status(500).json({ success: false });
   }
 });
 
-// ================== SINGLE JOB (SLUG) ==================
-// ================== SINGLE JOB (SEO SAFE) ==================
+// ================== SINGLE JOB (REDIS CACHE) ==================
 app.get("/api/jobs/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
-    let job = null;
+    const cacheKey = `job:${slug}`;
 
-    // ✅ 1) Always try SLUG first (for indexing)
-    job = await Job.findOne({ slug }).lean();
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log("⚡ Redis Cache HIT:", cacheKey);
+      return res.json(JSON.parse(cached));
+    }
 
-    // ✅ 2) If someone opens ID URL, redirect to slug (BEST SEO)
+    let job = await Job.findOne({ slug }).lean();
+
     if (!job && /^[0-9a-fA-F]{24}$/.test(slug)) {
       const jobById = await Job.findById(slug).select("slug").lean();
       if (jobById?.slug) {
@@ -208,12 +203,14 @@ app.get("/api/jobs/:slug", async (req, res) => {
       return res.status(404).json({ success: false });
     }
 
-    res.json({ success: true, job });
-  } catch (err) {
+    const response = { success: true, job };
+    await redisClient.setEx(cacheKey, 600, JSON.stringify(response));
+
+    res.json(response);
+  } catch {
     res.status(400).json({ success: false });
   }
 });
-
 
 // ================== Resume ATS Checker ==================
 app.post("/api/resume-checker", (req, res) => {
@@ -221,9 +218,7 @@ app.post("/api/resume-checker", (req, res) => {
 
   form.parse(req, async (err, fields, files) => {
     try {
-      if (err) {
-        return res.status(400).json({ error: "Invalid form data" });
-      }
+      if (err) return res.status(400).json({ error: "Invalid form data" });
 
       const resumeFile = Array.isArray(files.resume)
         ? files.resume[0]
@@ -232,9 +227,9 @@ app.post("/api/resume-checker", (req, res) => {
       const jobDesc = fields.jobDesc;
 
       if (!resumeFile || !jobDesc || !resumeFile.filepath) {
-        return res.status(400).json({
-          error: "Resume and job description are required",
-        });
+        return res
+          .status(400)
+          .json({ error: "Resume and job description are required" });
       }
 
       const buffer = fs.readFileSync(resumeFile.filepath);
@@ -278,78 +273,21 @@ ${jobDesc}
     }
   });
 });
-app.get("/api/job-by-id/:id", async (req, res) => {
-  const job = await Job.findById(req.params.id).select("slug");
-  if (!job) return res.status(404).end();
-  res.redirect(301, `/jobs/${job.slug}`);
+
+// ================== CLEAR REDIS CACHE ==================
+app.get("/api/admin/clear-cache", async (req, res) => {
+  await redisClient.flushAll();
+  res.json({ success: true, message: "Redis cache cleared" });
 });
 
 // ================== Root ==================
 app.get("/", (_, res) =>
   res.send("FreshersJobs Backend Running 🚀")
 );
-app.get("/api/admin/fix-slugs", async (req, res) => {
-  try {
-    const jobs = await Job.find({
-      $or: [{ slug: { $exists: false } }, { slug: "" }]
-    });
-
-    let count = 0;
-
-    for (const job of jobs) {
-      job.slug =
-        job.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/(^-|-$)/g, "") +
-        "-" +
-        job._id.toString().slice(-6);
-
-      await job.save();
-      count++;
-    }
-
-    res.json({
-      success: true,
-      updated: count
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get("/api/admin/clear-cache", (req, res) => {
-  jobCache.flushAll();
-  res.json({ success: true, message: "Cache cleared" });
-});
-
-
-app.get("/sitemap.xml", async (req, res) => {
-  try {
-    const jobs = await Job.find().select("slug updatedAt");
-
-    const urls = jobs
-      .map(
-        (job) => `
-  <url>
-    <loc>https://freshersjobs.shop/jobs/${job.slug}</loc>
-    <lastmod>${job.updatedAt?.toISOString() || new Date().toISOString()}</lastmod>
-  </url>`
-      )
-      .join("");
-
-    res.header("Content-Type", "application/xml");
-    res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls}
-</urlset>`);
-  } catch (err) {
-    res.status(500).end();
-  }
-});
-
 
 // ================== Start ==================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`🚀 Server running on port ${PORT}`)
 );
+
